@@ -1,0 +1,50 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/01/DMux8Way.hdl
+
+/**
+ * 8-way demultiplexor:
+ * {a, b, c, d, e, f, g, h} = {in, 0, 0, 0, 0, 0, 0, 0} if sel == 000
+ *                            {0, in, 0, 0, 0, 0, 0, 0} if sel == 001
+ *                            {0, 0, in, 0, 0, 0, 0, 0} if sel == 010
+ *                            {0, 0, 0, in, 0, 0, 0, 0} if sel == 011
+ *                            {0, 0, 0, 0, in, 0, 0, 0} if sel == 100
+ *                            {0, 0, 0, 0, 0, in, 0, 0} if sel == 101
+ *                            {0, 0, 0, 0, 0, 0, in, 0} if sel == 110
+ *                            {0, 0, 0, 0, 0, 0, 0, in} if sel == 111
+ */
+
+CHIP DMux8Way {
+    IN in, sel[3];
+    OUT a, b, c, d, e, f, g, h;
+
+    PARTS:
+    // Put your code here:
+    Mux(a=in, b=false, sel=sel[2], out=a0);
+    Mux(a=in, b=false, sel=sel[2], out=b0);
+    Mux(a=in, b=false, sel=sel[2], out=c0);
+    Mux(a=in, b=false, sel=sel[2], out=d0);
+    Mux(a=false, b=in, sel=sel[2], out=e0);
+    Mux(a=false, b=in, sel=sel[2], out=f0);
+    Mux(a=false, b=in, sel=sel[2], out=g0);
+    Mux(a=false, b=in, sel=sel[2], out=h0);
+
+    Mux(a=a0, b=false, sel=sel[1], out=a1);
+    Mux(a=b0, b=false, sel=sel[1], out=b1);
+    Mux(a=false, b=c0, sel=sel[1], out=c1);
+    Mux(a=false, b=d0, sel=sel[1], out=d1);
+    Mux(a=e0, b=false, sel=sel[1], out=e1);
+    Mux(a=f0, b=false, sel=sel[1], out=f1);
+    Mux(a=false, b=g0, sel=sel[1], out=g1);
+    Mux(a=false, b=h0, sel=sel[1], out=h1);
+
+    Mux(a=a1, b=false, sel=sel[0], out=a);
+    Mux(a=false, b=b1, sel=sel[0], out=b);
+    Mux(a=c1, b=false, sel=sel[0], out=c);
+    Mux(a=false, b=d1, sel=sel[0], out=d);
+    Mux(a=e1, b=false, sel=sel[0], out=e);
+    Mux(a=false, b=f1, sel=sel[0], out=f);
+    Mux(a=g1, b=false, sel=sel[0], out=g);
+    Mux(a=false, b=h1, sel=sel[0], out=h);
+}
