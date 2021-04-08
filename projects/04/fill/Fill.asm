@@ -22,46 +22,50 @@
   D;JEQ
 
 (SET_BLACK)
-  @R0
+  @color
   M=-1
   @FILL_SCREEN
   0;JMP
 
 (SET_WHITE)
-  @R0
+  @color
   M=0
 
-// Fill screen with color specified in R0
+// Fill screen with color specified in variable
 (FILL_SCREEN)
   // Write 256*32
   @8192
   D=A
-  @count
+  @block_num
   M=D
   @i
   M=0
 
-// Write R0 color to offset i
+// Write color to offset i
 (WRITE_BLOCK)
-  @R0
+  // if loop variable equals or is greater than block_num we loop from beginning
+  @i
+  D=M
+  @block_num
+  D=M-D
+  @CHECK_INPUT
+  D; JLE
+  // Write block
+  @i
   D=M
   @SCREEN
+  D=A+D
+  @offset
   M=D
-//  A=A+D
-//  D=A
-//  @R0
-//
-//  M=
-//  @i
-//  D=M
-//  @R1
-//  D=M-D
-//  
-//  @FINALIZE
-//  D; JLE
-//  @R0
-//  D=M
-  @CHECK_INPUT
-  0;JMP
+  @color
+  D=M
+  @offset
+  A=M
+  M=D // set color to offset address
 
-
+  // increment loop index
+  @i
+  M=M+1
+  // write next block
+  @WRITE_BLOCK
+  0; JMP
