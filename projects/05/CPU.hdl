@@ -42,27 +42,27 @@ CHIP CPU {
     // decode instruction
     Not(in=instruction[15], out=instIsA);
    
-    // write to A,D,M only when instruction is C Instruction and dest has A, D, or M specified 
+    // Check dst values.
+    // Write to A,D,M only when instruction is C Instruction and dest has A, D, or M specified 
     And(a=instruction[5], b=instruction[15], out=writeALUToA);
     And(a=instruction[4], b=instruction[15], out=writeALUToD);
-    And(a=instruction[3], b=instruction[15], out=writeALUToM);
+    And(a=instruction[3], b=instruction[15], out=writeM);
 
     // If given instruction is A instruction,
     // we just set A register to instruction and go next.
     Mux16(a=instruction, b=aluOut, sel=instruction[15], out=instOrAlu);
     Or(a=writeALUToA, b=instIsA, out=isAOrWriteA);
     // write to A register when A instruction or dest is specified
-    ARegister(in=instOrAlu, load=isAOrWriteA, out=aRegOut);
+    ARegister(in=instOrAlu, load=isAOrWriteA, out=aRegOut, out[0..14]=addressM);
 
     // Update D register if we dest is specified
     DRegister(in=aluOut, load=writeALUToD, out=dRegOut);
 
     // If given instruction is C instruction,
     // we calculate based on comp and store values based on dst.
-    // if jmp is set we also check ALU result and jump accordingly
-    
-    Mux16(a=aRegOut, b=inM, sel=, out=aOrM);
-    ALU(x=dRegOut, y=aOrM,zx,nx,zy,ny,f,no,out=aluOut,zr,ng);
+    // According to compute field of C instruction, we use M when a is 1, and use A when a is 0
+    Mux16(a=aRegOut, b=inM, sel=instruction[12], out=aOrM);
+    ALU(x=dRegOut, y=aOrM, zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8], f=instruction[7], no=instruction[6], out=aluOut, out=outM, zr=zrOut, ng=ngOut);
 
     // If jump condition is fulfilled we transition to address in ARegister
     aluOut
