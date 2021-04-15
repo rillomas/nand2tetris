@@ -71,8 +71,10 @@ CHIP CPU {
     And(a=instruction[1], b=aluOutZero, out=jumpZero);
     And(a=instruction[2], b=aluOutNegative, out=jumpNegative);
     Or(a=jumpPositive, b=jumpZero, out=jumpZeroOrGreater);
-    Or(a=jumpZeroOrGreater, b=jumpNegative, out=jumpToA);
+    Or(a=jumpZeroOrGreater, b=jumpNegative, out=jumpOk);
+    // Only jump on C instructions
+    And(a=jumpOk, b=instruction[15], out=jumpToA);
     
     // PC priority is reset > load > inc which is aligned with the CPU. There is no problem in setting flags simultaneously
-    PC(in=aRegOut, reset=reset, load=jumpToA, inc=true, out[0..15]=pc);
+    PC(in=aRegOut, reset=reset, load=jumpToA, inc=true, out[0..14]=pc);
 }
