@@ -62,12 +62,16 @@ CHIP CPU {
     // we calculate based on comp and store values based on dst.
     // According to compute field of C instruction, we use M when a is 1, and use A when a is 0
     Mux16(a=aRegOut, b=inM, sel=instruction[12], out=aOrM);
-    ALU(x=dRegOut, y=aOrM, zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8], f=instruction[7], no=instruction[6], out=aluOut, out=outM, zr=zrOut, ng=ngOut);
+    ALU(x=dRegOut, y=aOrM, zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8], f=instruction[7], no=instruction[6], out=aluOut, out=outM, zr=aluOutZero, ng=aluOutNegative);
 
     // If jump condition is fulfilled we transition to address in ARegister
-    aluOut
-    jumpToA
-    aRegOut 
+    Not(in=aluOutNegative, out=aluOutPositive);
+    // Compare ALU out with jmp flags to determine if we can jump or not
+    And(a=instruction[0], b=aluOutPositive, out=jumpPositive);
+    And(a=instruction[1], b=aluOutZero, out=jumpZero);
+    And(a=instruction[2], b=aluOutNegative, out=jumpNegative);
+    Or(a=jumpPositive, b=jumpZero, out=jumpZeroOrGreater);
+    Or(a=jumpZeroOrGreater, b=jumpNegative, out=jumpToA);
     
     // PC priority is reset > load > inc which is aligned with the CPU. There is no problem in setting flags simultaneously
     PC(in=aRegOut, reset=reset, load=jumpToA, inc=true, out[0..15]=pc);
