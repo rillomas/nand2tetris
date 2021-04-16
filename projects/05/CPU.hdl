@@ -65,7 +65,8 @@ CHIP CPU {
     ALU(x=dRegOut, y=aOrM, zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8], f=instruction[7], no=instruction[6], out=aluOut, out=outM, zr=aluOutZero, ng=aluOutNegative);
 
     // If jump condition is fulfilled we transition to address in ARegister
-    Not(in=aluOutNegative, out=aluOutPositive);
+    Or(a=aluOutZero, b=aluOutNegative, out=aluOutZeroOrNegative);
+    Not(in=aluOutZeroOrNegative, out=aluOutPositive);
     // Compare ALU out with jmp flags to determine if we can jump or not
     And(a=instruction[0], b=aluOutPositive, out=jumpPositive);
     And(a=instruction[1], b=aluOutZero, out=jumpZero);
