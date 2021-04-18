@@ -15,15 +15,32 @@ struct Opts {
 #[derive(Debug)]
 enum LineType {
     BLANK,
-    COMMENT,
     A_INSTRUCTION,
     C_INSTRUCTION,
     LABEL,
     UNKNOWN,
 }
 
+fn remove_comment(line: &str) -> &str {
+    match line.find("//") {
+        Some(pos) => {
+            // create substr based on comment position
+            let (first, _last) = line.split_at(pos);
+            first
+        }
+        // No comment so we just use the original line
+        None => line,
+    }
+}
+
 fn detect_line_type(line: &str) -> Result<LineType, &'static str> {
-    Ok(LineType::UNKNOWN)
+    let code = remove_comment(line);
+    if code.is_empty() {
+        // is comment line
+        Ok(LineType::BLANK)
+    } else {
+        Ok(LineType::UNKNOWN)
+    }
 }
 
 fn main() -> std::io::Result<()> {
