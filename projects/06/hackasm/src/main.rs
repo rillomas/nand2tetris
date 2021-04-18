@@ -1,4 +1,5 @@
 use clap::{AppSettings, Clap};
+use std::path::{Path, PathBuf};
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Masato Nakasaka <rillomas@gmail.com>")]
@@ -6,11 +7,13 @@ use clap::{AppSettings, Clap};
 struct Opts {
     #[clap(short)]
     input_file: String,
-    #[clap(short)]
-    output_file: String,
 }
 
 fn main() {
     let opts = Opts::parse();
-    println!("input: {} output: {}", opts.input_file, opts.output_file);
+    let input_file = Path::new(&opts.input_file);
+    let mut output_file = PathBuf::from(input_file);
+    output_file.set_extension("hack");
+    println!("input: {}", input_file.display());
+    println!("output: {}", output_file.display());
 }
