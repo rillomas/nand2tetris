@@ -14,11 +14,10 @@ struct Opts {
 /// Type of line from asm code
 #[derive(Debug)]
 enum LineType {
-    BLANK,
-    A_INSTRUCTION,
-    C_INSTRUCTION,
-    LABEL,
-    UNKNOWN,
+    Blank,
+    AInstruction,
+    CInstruction,
+    Label,
 }
 
 fn remove_comment(line: &str) -> &str {
@@ -33,13 +32,18 @@ fn remove_comment(line: &str) -> &str {
     }
 }
 
-fn detect_line_type(line: &str) -> Result<LineType, &'static str> {
-    let code = remove_comment(line);
+fn parse_line(line: &str) -> Result<LineType, &'static str> {
+    let trimmed = line.trim();
+    let code = remove_comment(trimmed);
     if code.is_empty() {
         // is comment line
-        Ok(LineType::BLANK)
-    } else {
-        Ok(LineType::UNKNOWN)
+        return Ok(LineType::Blank);
+    }
+    let first_char = code.chars().nth(0);
+    match first_char {
+        Some('@') => Ok(LineType::AInstruction),
+        Some('(') => Ok(LineType::Label),
+        _ => Ok(LineType::CInstruction),
     }
 }
 
@@ -53,9 +57,8 @@ fn main() -> std::io::Result<()> {
     let file = File::open(input_file_path)?;
     let reader = BufReader::new(file);
     for line in reader.lines() {
-        // Skip comment lines
         let line_text = line.unwrap();
-        let line_type = detect_line_type(&line_text).unwrap();
+        let line_type = parse_line(&line_text).unwrap();
         println!("{:?}: {}", line_type, line_text);
     }
     Ok(())
