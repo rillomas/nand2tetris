@@ -20,6 +20,59 @@ enum LineType {
     Label,
 }
 
+#[derive(Debug)]
+struct CInstruction {
+    comp: String,
+    dest: Option<String>,
+    jmp: Option<String>,
+}
+
+impl CInstruction {
+    fn new(line: &str) -> CInstruction {
+        let dest_delimiter = '=';
+        let jmp_delimiter = ';';
+        let dest_position = line.find(dest_delimiter);
+        let jmp_position = line.find(jmp_delimiter);
+        if dest_position == None {
+            if jmp_position == None {
+                // no dest, no jmp
+                CInstruction {
+                    comp: line.to_string(),
+                    dest: None,
+                    jmp: None,
+                }
+            } else {
+                // no dest, has jmp
+                let comp_jmp: Vec<_> = line.split(jmp_delimiter).collect();
+                CInstruction {
+                    comp: comp_jmp[0].to_string(),
+                    dest: None,
+                    jmp: Some(comp_jmp[1].to_string()),
+                }
+            }
+        } else {
+            if jmp_position == None {
+                // has dest, no jmp
+                let dest_comp: Vec<_> = line.split(dest_delimiter).collect();
+                CInstruction {
+                    comp: dest_comp[0].to_string(),
+                    dest: Some(dest_comp[1].to_string()),
+                    jmp: None,
+                }
+            } else {
+                // has both dest and jmp
+                let dest_comp_jmp: Vec<_> = line.split(dest_delimiter).collect();
+                let comp_jmp: Vec<_> = dest_comp_jmp[1].split(jmp_delimiter).collect();
+                CInstruction {
+                    comp: comp_jmp[0].to_string(),
+                    dest: Some(dest_comp_jmp[0].to_string()),
+                    jmp: Some(comp_jmp[1].to_string()),
+                }
+            }
+        }
+    }
+}
+
 fn remove_comment(line: &str) -> &str {
     match line.find("//") {
         Some(pos) => {
@@ -43,7 +96,11 @@ fn parse_line(line: &str) -> Result<LineType, &'static str> {
     match first_char {
         Some('@') => Ok(LineType::AInstruction),
         Some('(') => Ok(LineType::Label),
-        _ => Ok(LineType::CInstruction),
+        _ => {
+            let cinst = CInstruction::new(code);
+            println!("{:?}", cinst);
+            Ok(LineType::CInstruction)
+        }
     }
 }
 
