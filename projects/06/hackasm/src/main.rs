@@ -24,7 +24,80 @@ enum LineType {
 struct CInstruction {
     comp: String,
     dest: Option<String>,
-    jmp: Option<String>,
+    jump: Option<String>,
+}
+
+#[derive(Debug)]
+struct AInstruction {
+    value: u16,
+}
+
+const A_INSTRUCTION_SYMBOL: char = '@';
+const COMMENT_SYMBOL: &str = "//";
+
+trait Instruction {
+    /// Convert instruction to binary text (hack format)
+    fn to_binary_text(&self) -> Result<String, &'static str>;
+}
+
+impl Instruction for CInstruction {
+    fn to_binary_text(&self) -> Result<String, &'static str> {
+        let mut output = String::from("111");
+        match self.comp.as_str() {
+            "0" => output.push_str("0101010"),
+            "1" => output.push_str("0111111"),
+            "-1" => output.push_str("0111010"),
+            "D" => output.push_str("0001100"),
+            "A" => output.push_str("0110000"),
+            "M" => output.push_str("1110000"),
+            "!D" => output.push_str("0001101"),
+            "!A" => output.push_str("0110001"),
+            "!M" => output.push_str("1110001"),
+            "-D" => output.push_str("0001111"),
+            "-A" => output.push_str("0110011"),
+            "-M" => output.push_str("1110011"),
+            "D+1" => output.push_str("0011111"),
+            "A+1" => output.push_str("0110111"),
+            "M+1" => output.push_str("1110111"),
+            "D-1" => output.push_str("0001110"),
+            "A-1" => output.push_str("0110010"),
+            "M-1" => output.push_str("1110010"),
+            "D+A" => output.push_str("0000010"),
+            "D+M" => output.push_str("1000010"),
+            "D-A" => output.push_str("0010011"),
+            "D-M" => output.push_str("1010011"),
+            "A-D" => output.push_str("0000111"),
+            "M-D" => output.push_str("1000111"),
+            "D&A" => output.push_str("0000000"),
+            "D&M" => output.push_str("1000000"),
+            "D|A" => output.push_str("0010101"),
+            "D|M" => output.push_str("1010101"),
+            _ => return Err("Unknown comp"),
+        }
+        match self.dest.as_deref() {
+            None => output.push_str("000"),
+            Some("M") => output.push_str("001"),
+            Some("D") => output.push_str("010"),
+            Some("MD") => output.push_str("011"),
+            Some("A") => output.push_str("100"),
+            Some("AM") => output.push_str("101"),
+            Some("AD") => output.push_str("110"),
+            Some("AMD") => output.push_str("111"),
+            _ => return Err("Unknown dest"),
+        }
+        match self.jump.as_deref() {
+            None => output.push_str("000"),
+            Some("JGT") => output.push_str("001"),
+            Some("JEQ") => output.push_str("010"),
+            Some("JGE") => output.push_str("011"),
+            Some("JLT") => output.push_str("100"),
+            Some("JNE") => output.push_str("101"),
+            Some("JLE") => output.push_str("110"),
+            Some("JMP") => output.push_str("111"),
+            _ => return Err("Unknown jump"),
+        }
+        Ok(output)
+    }
 }
 
 impl CInstruction {
@@ -39,7 +112,7 @@ impl CInstruction {
                 CInstruction {
                     comp: line.to_string(),
                     dest: None,
-                    jmp: None,
+                    jump: None,
                 }
             } else {
                 // no dest, has jmp
@@ -47,7 +120,7 @@ impl CInstruction {
                 CInstruction {
                     comp: comp_jmp[0].to_string(),
                     dest: None,
-                    jmp: Some(comp_jmp[1].to_string()),
+                    jump: Some(comp_jmp[1].to_string()),
                 }
             }
         } else {
@@ -55,9 +128,9 @@ impl CInstruction {
                 // has dest, no jmp
                 let dest_comp: Vec<_> = line.split(dest_delimiter).collect();
                 CInstruction {
-                    comp: dest_comp[0].to_string(),
-                    dest: Some(dest_comp[1].to_string()),
-                    jmp: None,
+                    comp: dest_comp[1].to_string(),
+                    dest: Some(dest_comp[0].to_string()),
+                    jump: None,
                 }
             } else {
                 // has both dest and jmp
@@ -66,15 +139,30 @@ impl CInstruction {
                 CInstruction {
                     comp: comp_jmp[0].to_string(),
                     dest: Some(dest_comp_jmp[0].to_string()),
-                    jmp: Some(comp_jmp[1].to_string()),
+                    jump: Some(comp_jmp[1].to_string()),
                 }
             }
         }
     }
 }
 
+impl Instruction for AInstruction {
+    fn to_binary_text(&self) -> Result<String, &'static str> {
+        Ok(format!("{:016b}", self.value))
+    }
+}
+
+impl AInstruction {
+    fn new(line: &str) -> AInstruction {
+        let splitten: Vec<_> = line.split(A_INSTRUCTION_SYMBOL).collect();
+        let address = splitten[1];
+        let value = str::parse::<u16>(address).unwrap();
+        AInstruction { value: value }
+    }
+}
+
 fn remove_comment(line: &str) -> &str {
-    match line.find("//") {
+    match line.find(COMMENT_SYMBOL) {
         Some(pos) => {
             // create substr based on comment position
             let (first, _last) = line.split_at(pos);
@@ -85,7 +173,10 @@ fn remove_comment(line: &str) -> &str {
     }
 }
 
-fn parse_line(line: &str) -> Result<LineType, &'static str> {
+fn parse_line(
+    line: &str,
+    instruction_output: &mut Vec<Box<dyn Instruction>>,
+) -> Result<LineType, &'static str> {
     let trimmed = line.trim();
     let code = remove_comment(trimmed);
     if code.is_empty() {
@@ -94,11 +185,17 @@ fn parse_line(line: &str) -> Result<LineType, &'static str> {
     }
     let first_char = code.chars().nth(0);
     match first_char {
-        Some('@') => Ok(LineType::AInstruction),
+        Some(A_INSTRUCTION_SYMBOL) => {
+            let ainst = AInstruction::new(code);
+            // println!("{:?}", ainst);
+            instruction_output.push(Box::new(ainst));
+            Ok(LineType::AInstruction)
+        }
         Some('(') => Ok(LineType::Label),
         _ => {
             let cinst = CInstruction::new(code);
             println!("{:?}", cinst);
+            instruction_output.push(Box::new(cinst));
             Ok(LineType::CInstruction)
         }
     }
@@ -113,10 +210,14 @@ fn main() -> std::io::Result<()> {
     println!("output: {}", output_file_path.display());
     let file = File::open(input_file_path)?;
     let reader = BufReader::new(file);
+    let mut instructions = vec![];
     for line in reader.lines() {
         let line_text = line.unwrap();
-        let line_type = parse_line(&line_text).unwrap();
-        println!("{:?}: {}", line_type, line_text);
+        let _line_type = parse_line(&line_text, &mut instructions).unwrap();
+        // println!("{:?}: {}", line_type, line_text);
+    }
+    for inst in instructions {
+        println!("{}", inst.to_binary_text().unwrap());
     }
     Ok(())
 }
