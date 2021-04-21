@@ -1,4 +1,5 @@
 use clap::{AppSettings, Clap};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -34,6 +35,31 @@ struct AInstruction {
 
 const A_INSTRUCTION_SYMBOL: char = '@';
 const COMMENT_SYMBOL: &str = "//";
+const PREDEFINED_SYMBOL: [(&str, u16); 23] = [
+    ("SP", 0),
+    ("LCL", 1),
+    ("ARG", 2),
+    ("THIS", 3),
+    ("THAT", 4),
+    ("R0", 0),
+    ("R1", 1),
+    ("R2", 2),
+    ("R3", 3),
+    ("R4", 4),
+    ("R5", 5),
+    ("R6", 6),
+    ("R7", 7),
+    ("R7", 8),
+    ("R9", 9),
+    ("R10", 10),
+    ("R11", 11),
+    ("R12", 12),
+    ("R13", 13),
+    ("R14", 14),
+    ("R15", 15),
+    ("SCREEN", 0x4000),
+    ("KBD", 0x6000),
+];
 
 trait Instruction {
     /// Convert instruction to binary text (hack format)
@@ -153,11 +179,20 @@ impl Instruction for AInstruction {
 }
 
 impl AInstruction {
-    fn new(line: &str) -> AInstruction {
+    fn new(line: &str, symbol_table: &HashMap<&str, u16>) -> AInstruction {
         let splitten: Vec<_> = line.split(A_INSTRUCTION_SYMBOL).collect();
-        let address = splitten[1];
-        let value = str::parse::<u16>(address).unwrap();
-        AInstruction { value: value }
+        let address_or_symbol = splitten[1];
+        let maybe_address = str::parse::<u16>(address_or_symbol);
+        if maybe_address.is_ok() {
+            // A instruction is direct address
+            let value = maybe_address.unwrap();
+            AInstruction { value: value }
+        } else {
+            // A instruction is a symbol
+            // Lookup table to get address
+            let address = symbol_table.get(address_or_symbol).unwrap();
+            AInstruction { value: *address }
+        }
     }
 }
 
@@ -175,6 +210,7 @@ fn remove_comment(line: &str) -> &str {
 
 fn parse_line(
     line: &str,
+    symbol_table: &HashMap<&str, u16>,
     instruction_output: &mut Vec<Box<dyn Instruction>>,
 ) -> Result<LineType, &'static str> {
     let trimmed = line.trim();
@@ -186,7 +222,7 @@ fn parse_line(
     let first_char = code.chars().nth(0);
     match first_char {
         Some(A_INSTRUCTION_SYMBOL) => {
-            let ainst = AInstruction::new(code);
+            let ainst = AInstruction::new(code, symbol_table);
             // println!("{:?}", ainst);
             instruction_output.push(Box::new(ainst));
             Ok(LineType::AInstruction)
@@ -201,6 +237,8 @@ fn parse_line(
     }
 }
 
+fn init_symbol_table(table: &mut HashMap<&str, u16>, reader: &BufReader<std::fs::File>) {}
+
 fn main() -> std::io::Result<()> {
     let opts = Opts::parse();
     let input_file_path = Path::new(&opts.input_file);
@@ -211,17 +249,19 @@ fn main() -> std::io::Result<()> {
     let file = File::open(input_file_path)?;
     let reader = BufReader::new(file);
     let mut instructions = vec![];
+    let mut symbol_table: HashMap<&str, u16> = PREDEFINED_SYMBOL.iter().cloned().collect();
+    init_symbol_table(&mut symbol_table, &reader);
     for line in reader.lines() {
         let line_text = line.unwrap();
-        let _line_type = parse_line(&line_text, &mut instructions).unwrap();
-        // println!("{:?}: {}", line_type, line_text);
+        let _line_type = parse_line(&line_text, &symbol_table, &mut instructions).unwrap();
+        println!("{:?}: {}", _line_type, line_text);
     }
-    let mut out_file = File::create(output_file_path)?;
-    for inst in instructions {
-        let written = out_file
-            .write(inst.to_binary_text().unwrap().as_bytes())
-            .unwrap();
-        assert_eq!(written, 17); // 16 chars + new line
-    }
+    // let mut out_file = File::create(output_file_path)?;
+    // for inst in instructions {
+    //     let written = out_file
+    //         .write(inst.to_binary_text().unwrap().as_bytes())
+    //         .unwrap();
+    //     assert_eq!(written, 17); // 16 chars + new line
+    // }
     Ok(())
 }
