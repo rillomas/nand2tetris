@@ -1,6 +1,6 @@
 use clap::{AppSettings, Clap};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Clap)]
@@ -86,14 +86,14 @@ impl Instruction for CInstruction {
             _ => return Err("Unknown dest"),
         }
         match self.jump.as_deref() {
-            None => output.push_str("000"),
-            Some("JGT") => output.push_str("001"),
-            Some("JEQ") => output.push_str("010"),
-            Some("JGE") => output.push_str("011"),
-            Some("JLT") => output.push_str("100"),
-            Some("JNE") => output.push_str("101"),
-            Some("JLE") => output.push_str("110"),
-            Some("JMP") => output.push_str("111"),
+            None => output.push_str("000\n"),
+            Some("JGT") => output.push_str("001\n"),
+            Some("JEQ") => output.push_str("010\n"),
+            Some("JGE") => output.push_str("011\n"),
+            Some("JLT") => output.push_str("100\n"),
+            Some("JNE") => output.push_str("101\n"),
+            Some("JLE") => output.push_str("110\n"),
+            Some("JMP") => output.push_str("111\n"),
             _ => return Err("Unknown jump"),
         }
         Ok(output)
@@ -148,7 +148,7 @@ impl CInstruction {
 
 impl Instruction for AInstruction {
     fn to_binary_text(&self) -> Result<String, &'static str> {
-        Ok(format!("{:016b}", self.value))
+        Ok(format!("{:016b}\n", self.value))
     }
 }
 
@@ -194,7 +194,7 @@ fn parse_line(
         Some('(') => Ok(LineType::Label),
         _ => {
             let cinst = CInstruction::new(code);
-            println!("{:?}", cinst);
+            // println!("{:?}", cinst);
             instruction_output.push(Box::new(cinst));
             Ok(LineType::CInstruction)
         }
@@ -216,8 +216,12 @@ fn main() -> std::io::Result<()> {
         let _line_type = parse_line(&line_text, &mut instructions).unwrap();
         // println!("{:?}: {}", line_type, line_text);
     }
+    let mut out_file = File::create(output_file_path)?;
     for inst in instructions {
-        println!("{}", inst.to_binary_text().unwrap());
+        let written = out_file
+            .write(inst.to_binary_text().unwrap().as_bytes())
+            .unwrap();
+        assert_eq!(written, 17); // 16 chars + new line
     }
     Ok(())
 }
