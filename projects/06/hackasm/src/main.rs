@@ -1,7 +1,7 @@
 use clap::{AppSettings, Clap};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Seek, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Clap)]
@@ -33,8 +33,11 @@ struct AInstruction {
     value: u16,
 }
 
+type SymbolTable = HashMap<String, u16>;
 const A_INSTRUCTION_SYMBOL: char = '@';
 const COMMENT_SYMBOL: &str = "//";
+const LEFT_LABEL_SYMBOL: char = '(';
+const RIGHT_LABEL_SYMBOL: char = ')';
 const PREDEFINED_SYMBOL: [(&str, u16); 23] = [
     ("SP", 0),
     ("LCL", 1),
@@ -178,8 +181,28 @@ impl Instruction for AInstruction {
     }
 }
 
+/// Get symbol from label line
+fn get_symbol_from_label(line: &str) -> &str {
+    let chars: &[_] = &[LEFT_LABEL_SYMBOL, RIGHT_LABEL_SYMBOL];
+    line.trim_matches(chars)
+}
+
+/// Get symbol from A instruction line
+fn get_symbol_from_a_instruction(line: &str) -> Option<&str> {
+    let splitten: Vec<_> = line.split(A_INSTRUCTION_SYMBOL).collect();
+    let address_or_symbol = splitten[1];
+    let maybe_address = str::parse::<u16>(address_or_symbol);
+    if maybe_address.is_ok() {
+        // found direct address so we don't have any symbols
+        None
+    } else {
+        // Return symbol as string
+        Some(address_or_symbol)
+    }
+}
+
 impl AInstruction {
-    fn new(line: &str, symbol_table: &HashMap<&str, u16>) -> AInstruction {
+    fn new(line: &str, symbol_table: &SymbolTable) -> AInstruction {
         let splitten: Vec<_> = line.split(A_INSTRUCTION_SYMBOL).collect();
         let address_or_symbol = splitten[1];
         let maybe_address = str::parse::<u16>(address_or_symbol);
@@ -210,7 +233,7 @@ fn remove_comment(line: &str) -> &str {
 
 fn parse_line(
     line: &str,
-    symbol_table: &HashMap<&str, u16>,
+    symbol_table: &SymbolTable,
     instruction_output: &mut Vec<Box<dyn Instruction>>,
 ) -> Result<LineType, &'static str> {
     let trimmed = line.trim();
@@ -237,7 +260,45 @@ fn parse_line(
     }
 }
 
-fn init_symbol_table(table: &mut HashMap<&str, u16>, reader: &BufReader<std::fs::File>) {}
+fn scan_symbol(line: &str, symbol_table: &mut SymbolTable, current_address: u16) -> LineType {
+    let trimmed = line.trim();
+    let code = remove_comment(trimmed);
+    if code.is_empty() {
+        // is comment line
+        return LineType::Blank;
+    }
+    let first_char = code.chars().nth(0);
+    match first_char {
+        Some(A_INSTRUCTION_SYMBOL) => {
+            let symbol = get_symbol_from_a_instruction(code).unwrap();
+            // If symbol is new we assign a new address
+            LineType::AInstruction
+        }
+        Some(LEFT_LABEL_SYMBOL) => {
+            // for label lines we get address for the next line and store it to the symbol table
+            let symbol = get_symbol_from_label(code);
+            symbol_table.insert(symbol.to_string(), current_address);
+            LineType::Label
+        }
+        _ => {
+            // Nothing to do for C instructions
+            LineType::CInstruction
+        }
+    }
+}
+
+/// Go through source code to init all symbol tables
+fn init_symbol_table(table: &mut SymbolTable, reader: &mut BufReader<std::fs::File>) {
+    let mut current_address = 0;
+    for line in reader.lines() {
+        let line_type = scan_symbol(&line.unwrap(), table, current_address);
+        match line_type {
+            // Count up address only for valid instructions
+            LineType::AInstruction | LineType::CInstruction => current_address += 1,
+            _ => {}
+        }
+    }
+}
 
 fn main() -> std::io::Result<()> {
     let opts = Opts::parse();
@@ -247,15 +308,23 @@ fn main() -> std::io::Result<()> {
     println!("input: {}", input_file_path.display());
     println!("output: {}", output_file_path.display());
     let file = File::open(input_file_path)?;
-    let reader = BufReader::new(file);
-    let mut instructions = vec![];
-    let mut symbol_table: HashMap<&str, u16> = PREDEFINED_SYMBOL.iter().cloned().collect();
-    init_symbol_table(&mut symbol_table, &reader);
-    for line in reader.lines() {
-        let line_text = line.unwrap();
-        let _line_type = parse_line(&line_text, &symbol_table, &mut instructions).unwrap();
-        println!("{:?}: {}", _line_type, line_text);
-    }
+    let mut reader = BufReader::new(file);
+    // let mut instructions = vec![];
+    // let mut symbol_table: SymbolTable = PREDEFINED_SYMBOL.iter().cloned().collect();
+    let mut symbol_table: SymbolTable = PREDEFINED_SYMBOL
+        .iter()
+        .cloned()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+    init_symbol_table(&mut symbol_table, &mut reader);
+    println!("{:?}", symbol_table);
+    // reset file to beginning
+    // reader.seek(std::io::SeekFrom::Start(0))?;
+    // for line in reader.lines() {
+    //     let line_text = line.unwrap();
+    //     let _line_type = parse_line(&line_text, &symbol_table, &mut instructions).unwrap();
+    //     println!("{:?}: {}", _line_type, line_text);
+    // }
     // let mut out_file = File::create(output_file_path)?;
     // for inst in instructions {
     //     let written = out_file
