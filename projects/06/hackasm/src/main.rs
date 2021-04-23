@@ -260,43 +260,79 @@ fn parse_line(
     }
 }
 
-fn scan_symbol(line: &str, symbol_table: &mut SymbolTable, current_address: u16) -> LineType {
+fn scan_label_symbol(line: &str, symbol_table: &mut SymbolTable, current_address: u16) -> LineType {
     let mut code = remove_comment(line);
     code = code.trim();
     if code.is_empty() {
         // is comment line
         return LineType::Blank;
     }
+    // println!("{}", code);
     let first_char = code.chars().nth(0);
     match first_char {
-        Some(A_INSTRUCTION_SYMBOL) => {
-            // let symbol = get_symbol_from_a_instruction(code).unwrap();
-            // If symbol is new we assign a new address
-            LineType::AInstruction
-        }
+        Some(A_INSTRUCTION_SYMBOL) => LineType::AInstruction, // Nothing to do for A instructions
         Some(LEFT_LABEL_SYMBOL) => {
             // for label lines we get address for the next line and store it to the symbol table
             let symbol = get_symbol_from_label(code);
             symbol_table.insert(symbol.to_string(), current_address);
             LineType::Label
         }
-        _ => {
-            // Nothing to do for C instructions
-            LineType::CInstruction
+        _ => LineType::CInstruction, // Nothing to do for C instructions
+    }
+}
+
+fn scan_variable_symbol(
+    line: &str,
+    symbol_table: &mut SymbolTable,
+    variable_address: &mut u16,
+) -> LineType {
+    let mut code = remove_comment(line);
+    code = code.trim();
+    if code.is_empty() {
+        // is comment line
+        return LineType::Blank;
+    }
+    // println!("{}", code);
+    let first_char = code.chars().nth(0);
+    match first_char {
+        Some(A_INSTRUCTION_SYMBOL) => {
+            let maybe_symbol = get_symbol_from_a_instruction(code);
+            // println!("{:?}", maybe_symbol);
+            match maybe_symbol {
+                Some(symbol) => {
+                    // If symbol is new we assign a new address
+                    if !symbol_table.contains_key(symbol) {
+                        symbol_table.insert(symbol.to_string(), *variable_address);
+                        *variable_address += 1;
+                    }
+                    LineType::AInstruction
+                }
+                None => LineType::AInstruction, // Direct address specified. Ignore and go next
+            }
         }
+        Some(LEFT_LABEL_SYMBOL) => LineType::Label, // Nothing to do for Labels
+        _ => LineType::CInstruction,                // Nothing to do for C instructions
     }
 }
 
 /// Go through source code to init all symbol tables
 fn init_symbol_table(table: &mut SymbolTable, reader: &mut BufReader<std::fs::File>) {
     let mut current_address = 0;
+    // We want to scan for labels first since A instructions can refer to labels that come later.
+    // In such case we cannot distinguish if a symbol is a label or variable, so we scan for labels first to determine variable symbols
     for line in reader.lines() {
-        let line_type = scan_symbol(&line.unwrap(), table, current_address);
+        let line_type = scan_label_symbol(&line.unwrap(), table, current_address);
         match line_type {
             // Count up address only for valid instructions
             LineType::AInstruction | LineType::CInstruction => current_address += 1,
             _ => {}
         }
+    }
+    // Reset file to beginning and scan for variables
+    reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+    let mut variable_address = 16; // variable allocation starts from 16
+    for line in reader.lines() {
+        let _line_type = scan_variable_symbol(&line.unwrap(), table, &mut variable_address);
     }
 }
 
