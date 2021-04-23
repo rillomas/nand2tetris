@@ -236,8 +236,8 @@ fn parse_line(
     symbol_table: &SymbolTable,
     instruction_output: &mut Vec<Box<dyn Instruction>>,
 ) -> Result<LineType, &'static str> {
-    let trimmed = line.trim();
-    let code = remove_comment(trimmed);
+    let mut code = remove_comment(line);
+    code = code.trim();
     if code.is_empty() {
         // is comment line
         return Ok(LineType::Blank);
@@ -261,8 +261,8 @@ fn parse_line(
 }
 
 fn scan_symbol(line: &str, symbol_table: &mut SymbolTable, current_address: u16) -> LineType {
-    let trimmed = line.trim();
-    let code = remove_comment(trimmed);
+    let mut code = remove_comment(line);
+    code = code.trim();
     if code.is_empty() {
         // is comment line
         return LineType::Blank;
@@ -270,7 +270,7 @@ fn scan_symbol(line: &str, symbol_table: &mut SymbolTable, current_address: u16)
     let first_char = code.chars().nth(0);
     match first_char {
         Some(A_INSTRUCTION_SYMBOL) => {
-            let symbol = get_symbol_from_a_instruction(code).unwrap();
+            // let symbol = get_symbol_from_a_instruction(code).unwrap();
             // If symbol is new we assign a new address
             LineType::AInstruction
         }
@@ -309,28 +309,27 @@ fn main() -> std::io::Result<()> {
     println!("output: {}", output_file_path.display());
     let file = File::open(input_file_path)?;
     let mut reader = BufReader::new(file);
-    // let mut instructions = vec![];
-    // let mut symbol_table: SymbolTable = PREDEFINED_SYMBOL.iter().cloned().collect();
+    let mut instructions = vec![];
     let mut symbol_table: SymbolTable = PREDEFINED_SYMBOL
         .iter()
         .cloned()
         .map(|(k, v)| (k.to_string(), v))
         .collect();
     init_symbol_table(&mut symbol_table, &mut reader);
-    println!("{:?}", symbol_table);
+    // println!("{:?}", symbol_table);
     // reset file to beginning
-    // reader.seek(std::io::SeekFrom::Start(0))?;
-    // for line in reader.lines() {
-    //     let line_text = line.unwrap();
-    //     let _line_type = parse_line(&line_text, &symbol_table, &mut instructions).unwrap();
-    //     println!("{:?}: {}", _line_type, line_text);
-    // }
-    // let mut out_file = File::create(output_file_path)?;
-    // for inst in instructions {
-    //     let written = out_file
-    //         .write(inst.to_binary_text().unwrap().as_bytes())
-    //         .unwrap();
-    //     assert_eq!(written, 17); // 16 chars + new line
-    // }
+    reader.seek(std::io::SeekFrom::Start(0))?;
+    for line in reader.lines() {
+        let line_text = line.unwrap();
+        let _line_type = parse_line(&line_text, &symbol_table, &mut instructions).unwrap();
+        // println!("{:?}: {}", _line_type, line_text);
+    }
+    let mut out_file = File::create(output_file_path)?;
+    for inst in instructions {
+        let written = out_file
+            .write(inst.to_binary_text().unwrap().as_bytes())
+            .unwrap();
+        assert_eq!(written, 17); // 16 chars + new line
+    }
     Ok(())
 }
