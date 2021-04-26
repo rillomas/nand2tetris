@@ -60,6 +60,29 @@ enum SegmentType {
 
 const COMMENT_SYMBOL: &str = "//";
 
+const STATIC_VAR_START: u32 = 16;
+const STATIC_VAR_SIZE: u32 = 240;
+const STACK_START_OFFSET: u32 = 256;
+const STACK_SIZE: u32 = 1792;
+const HEAP_START_OFFSET: u32 = 2048;
+const HEAP_SIZE: u32 = 14436;
+
+const ADD_STR: &'static str = "@SP
+A=M
+A=A-1
+D=M
+A=A-1
+M=D+M
+D=A+1
+@SP
+M=D
+";
+
+const LOOP_STR: &'static str = "(LOOP_AT_END)
+@LOOP_AT_END
+0;JMP
+";
+
 fn remove_comment(line: &str) -> &str {
     match line.find(COMMENT_SYMBOL) {
         Some(pos) => {
@@ -81,6 +104,8 @@ trait Command {
     fn arithmetic_type(&self) -> Option<ArithmeticType>;
     /// Returns target memory index for push/pop command. Other commands will return none
     fn index(&self) -> Option<MemoryIndex>;
+    /// Convert command to corresponding hask asm text
+    fn to_asm_text(&self) -> Result<String, &'static str>;
 }
 
 struct MemoryAccessCommand {
@@ -101,6 +126,25 @@ impl Command for MemoryAccessCommand {
     }
     fn index(&self) -> Option<MemoryIndex> {
         Some(self.index)
+    }
+    fn to_asm_text(&self) -> Result<String, &'static str> {
+        match self.command {
+            CommandType::Push => {
+                let str = format!(
+                    "@{}
+D=A
+@SP
+A=M
+M=D
+@SP
+M=M+1
+",
+                    self.index
+                );
+                Ok(str.to_string())
+            }
+            _ => Err("Unsupported MemoryAccessCommand"),
+        }
     }
 }
 
@@ -143,6 +187,12 @@ impl Command for ArithmeticCommand {
     fn index(&self) -> Option<MemoryIndex> {
         None
     }
+    fn to_asm_text(&self) -> Result<String, &'static str> {
+        match self.arithmetic {
+            ArithmeticType::Add => Ok(ADD_STR.to_string()),
+            _ => Err("Unsupported Arithmetic type"),
+        }
+    }
 }
 
 fn parse_line(line: &str) -> Option<Box<dyn Command>> {
@@ -182,22 +232,32 @@ fn main() -> std::io::Result<()> {
     println!("input: {}", input_file_path.display());
     println!("output: {}", output_file_path.display());
     let file = File::open(input_file_path)?;
-    let mut reader = BufReader::new(file);
+    let reader = BufReader::new(file);
     let mut commands = vec![];
     for line in reader.lines() {
         let line_text = line.unwrap();
         let command = parse_line(&line_text);
         if command.is_some() {
             let cmd = command.unwrap();
-            println!(
-                "{:?} {:?} {:?} {:?}",
-                cmd.command_type(),
-                cmd.arithmetic_type(),
-                cmd.segment(),
-                cmd.index()
-            );
+            // println!(
+            //     "{:?} {:?} {:?} {:?}",
+            //     cmd.command_type(),
+            //     cmd.arithmetic_type(),
+            //     cmd.segment(),
+            //     cmd.index()
+            // );
             commands.push(cmd);
         }
     }
+
+    // convert VM commands to hack asm
+    let mut out_file = File::create(output_file_path)?;
+    for cmd in commands {
+        let _written = out_file
+            .write(cmd.to_asm_text().unwrap().as_bytes())
+            .unwrap();
+    }
+    // Add loop at the end to avoid code injection
+    let _written = out_file.write(LOOP_STR.as_bytes());
     Ok(())
 }

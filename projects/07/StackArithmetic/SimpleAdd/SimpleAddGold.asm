@@ -6,9 +6,11 @@ M=D
 // push 7
 @7
 D=A
+// assign value to SP address
 @SP
 A=M
 M=D
+// advance SP
 @SP
 M=M+1
 // push 8
