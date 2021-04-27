@@ -78,6 +78,101 @@ D=A+1
 M=D
 ";
 
+const SUB_STR: &'static str = "@SP
+A=M
+A=A-1
+D=M
+A=A-1
+M=M-D
+D=A+1
+@SP
+M=D
+";
+
+const AND_STR: &'static str = "@SP
+A=M
+A=A-1
+D=M
+A=A-1
+M=D&M
+D=A+1
+@SP
+M=D
+";
+
+const OR_STR: &'static str = "@SP
+A=M
+A=A-1
+D=M
+A=A-1
+M=D|M
+D=A+1
+@SP
+M=D
+";
+
+const NEG_STR: &'static str = "@SP
+A=M
+A=A-1
+D=M
+M=-M
+D=A+1
+@SP
+M=D
+";
+
+const NOT_STR: &'static str = "@SP
+A=M
+A=A-1
+D=M
+M=!M
+D=A+1
+@SP
+M=D
+";
+
+/// EQ is !Xor(x,y)
+const EQ_STR: &'static str = "@SP
+A=M
+A=A-1
+D=M
+@y
+M=D
+@noty
+M=!D
+@SP
+A=M-1
+D=M
+@x
+M=D
+@notx
+M=!D
+@y
+D=M
+@notx
+D=D&M
+@andYNotX
+M=D
+@noty
+D=M
+@x
+D=D&M
+@andNotYX
+M=D
+@andYNotX
+D=M
+@andNotYX
+D=D|M
+D=!D
+@SP
+A=M-1
+A=A-1
+M=D
+D=A+1
+@SP
+M=D
+";
+
 const LOOP_STR: &'static str = "(LOOP_AT_END)
 @LOOP_AT_END
 0;JMP
@@ -129,9 +224,10 @@ impl Command for MemoryAccessCommand {
     }
     fn to_asm_text(&self) -> Result<String, &'static str> {
         match self.command {
-            CommandType::Push => {
-                let str = format!(
-                    "@{}
+            CommandType::Push => match self.segment {
+                SegmentType::Constant => {
+                    let str = format!(
+                        "@{}
 D=A
 @SP
 A=M
@@ -139,10 +235,12 @@ M=D
 @SP
 M=M+1
 ",
-                    self.index
-                );
-                Ok(str.to_string())
-            }
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
+                _ => Err("Unsupported memory segment"),
+            },
             _ => Err("Unsupported MemoryAccessCommand"),
         }
     }
@@ -190,7 +288,14 @@ impl Command for ArithmeticCommand {
     fn to_asm_text(&self) -> Result<String, &'static str> {
         match self.arithmetic {
             ArithmeticType::Add => Ok(ADD_STR.to_string()),
-            _ => Err("Unsupported Arithmetic type"),
+            ArithmeticType::Sub => Ok(SUB_STR.to_string()),
+            ArithmeticType::And => Ok(AND_STR.to_string()),
+            ArithmeticType::Or => Ok(OR_STR.to_string()),
+            ArithmeticType::Neg => Ok(NEG_STR.to_string()),
+            ArithmeticType::Not => Ok(NOT_STR.to_string()),
+            ArithmeticType::Eq => Ok(EQ_STR.to_string()),
+            // _ => Err("Unsupported Arithmetic type"),
+            _ => Ok("".to_string()),
         }
     }
 }
@@ -219,6 +324,38 @@ fn parse_line(line: &str) -> Option<Box<dyn Command>> {
         "add" => Some(Box::new(ArithmeticCommand {
             command: CommandType::Arithmetic,
             arithmetic: ArithmeticType::Add,
+        })),
+        "sub" => Some(Box::new(ArithmeticCommand {
+            command: CommandType::Arithmetic,
+            arithmetic: ArithmeticType::Sub,
+        })),
+        "neg" => Some(Box::new(ArithmeticCommand {
+            command: CommandType::Arithmetic,
+            arithmetic: ArithmeticType::Neg,
+        })),
+        "eq" => Some(Box::new(ArithmeticCommand {
+            command: CommandType::Arithmetic,
+            arithmetic: ArithmeticType::Eq,
+        })),
+        "gt" => Some(Box::new(ArithmeticCommand {
+            command: CommandType::Arithmetic,
+            arithmetic: ArithmeticType::Gt,
+        })),
+        "lt" => Some(Box::new(ArithmeticCommand {
+            command: CommandType::Arithmetic,
+            arithmetic: ArithmeticType::Lt,
+        })),
+        "and" => Some(Box::new(ArithmeticCommand {
+            command: CommandType::Arithmetic,
+            arithmetic: ArithmeticType::And,
+        })),
+        "or" => Some(Box::new(ArithmeticCommand {
+            command: CommandType::Arithmetic,
+            arithmetic: ArithmeticType::Or,
+        })),
+        "not" => Some(Box::new(ArithmeticCommand {
+            command: CommandType::Arithmetic,
+            arithmetic: ArithmeticType::Not,
         })),
         _ => None,
     }
