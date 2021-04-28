@@ -12,6 +12,7 @@ struct Opts {
 }
 
 type MemoryIndex = u32;
+type CommandID = u32;
 
 /// Type of arithmetic command
 #[derive(Debug, Copy, Clone)]
@@ -19,13 +20,9 @@ enum ArithmeticType {
     Add,
     Sub,
     Neg,
-    /// Negate
     Eq,
-    /// Equal
     Gt,
-    /// Greater
     Lt,
-    /// Little
     And,
     Or,
     Not,
@@ -58,6 +55,7 @@ enum SegmentType {
     Temp,
 }
 
+const NULL_ID: CommandID = 0;
 const COMMENT_SYMBOL: &str = "//";
 
 const STATIC_VAR_START: u32 = 16;
@@ -131,48 +129,6 @@ D=A+1
 M=D
 ";
 
-/// EQ is !Xor(x,y)
-const EQ_STR: &'static str = "@SP
-A=M
-A=A-1
-D=M
-@y
-M=D
-@noty
-M=!D
-@SP
-A=M-1
-D=M
-@x
-M=D
-@notx
-M=!D
-@y
-D=M
-@notx
-D=D&M
-@andYNotX
-M=D
-@noty
-D=M
-@x
-D=D&M
-@andNotYX
-M=D
-@andYNotX
-D=M
-@andNotYX
-D=D|M
-D=!D
-@SP
-A=M-1
-A=A-1
-M=D
-D=A+1
-@SP
-M=D
-";
-
 const LOOP_STR: &'static str = "(LOOP_AT_END)
 @LOOP_AT_END
 0;JMP
@@ -201,6 +157,15 @@ trait Command {
     fn index(&self) -> Option<MemoryIndex>;
     /// Convert command to corresponding hask asm text
     fn to_asm_text(&self) -> Result<String, &'static str>;
+}
+
+/// Counter for specific commands.
+/// We need to count the number to create a unique ID to use as jump labels in each command.
+/// Without this we will have clashing jump lables each time we use eq, gt, and lt.
+struct CommandCounter {
+    eq: CommandID,
+    gt: CommandID,
+    lt: CommandID,
 }
 
 struct MemoryAccessCommand {
@@ -270,6 +235,10 @@ impl MemoryAccessCommand {
 struct ArithmeticCommand {
     command: CommandType,
     arithmetic: ArithmeticType,
+    /// Unique ID of command within the same command group.
+    /// This is used to create unique jump labels per command.
+    /// If this is 0 (NULL_ID) it means it is not used for this command
+    id: CommandID,
 }
 
 impl Command for ArithmeticCommand {
@@ -293,14 +262,35 @@ impl Command for ArithmeticCommand {
             ArithmeticType::Or => Ok(OR_STR.to_string()),
             ArithmeticType::Neg => Ok(NEG_STR.to_string()),
             ArithmeticType::Not => Ok(NOT_STR.to_string()),
-            ArithmeticType::Eq => Ok(EQ_STR.to_string()),
+            ArithmeticType::Eq => Ok(format!(
+                // use the ID to create a unique jump label for each command
+                "@SP
+A=M
+A=A-1
+D=M
+A=A-1
+D=D-M
+@ISEQ.{0}
+D;JEQ
+D=-1
+(ISEQ.{0})
+@SP
+A=M-1
+A=A-1
+M=!D
+D=A+1
+@SP
+M=D
+",
+                self.id
+            )),
             // _ => Err("Unsupported Arithmetic type"),
             _ => Ok("".to_string()),
         }
     }
 }
 
-fn parse_line(line: &str) -> Option<Box<dyn Command>> {
+fn parse_line(line: &str, counter: &mut CommandCounter) -> Option<Box<dyn Command>> {
     let mut code = remove_comment(line);
     code = code.trim();
     if code.is_empty() {
@@ -324,38 +314,56 @@ fn parse_line(line: &str) -> Option<Box<dyn Command>> {
         "add" => Some(Box::new(ArithmeticCommand {
             command: CommandType::Arithmetic,
             arithmetic: ArithmeticType::Add,
+            id: NULL_ID,
         })),
         "sub" => Some(Box::new(ArithmeticCommand {
             command: CommandType::Arithmetic,
             arithmetic: ArithmeticType::Sub,
+            id: NULL_ID,
         })),
         "neg" => Some(Box::new(ArithmeticCommand {
             command: CommandType::Arithmetic,
             arithmetic: ArithmeticType::Neg,
+            id: NULL_ID,
         })),
-        "eq" => Some(Box::new(ArithmeticCommand {
-            command: CommandType::Arithmetic,
-            arithmetic: ArithmeticType::Eq,
-        })),
-        "gt" => Some(Box::new(ArithmeticCommand {
-            command: CommandType::Arithmetic,
-            arithmetic: ArithmeticType::Gt,
-        })),
-        "lt" => Some(Box::new(ArithmeticCommand {
-            command: CommandType::Arithmetic,
-            arithmetic: ArithmeticType::Lt,
-        })),
+        "eq" => {
+            counter.eq += 1; // We increment first because 0 is reserved for null
+            Some(Box::new(ArithmeticCommand {
+                command: CommandType::Arithmetic,
+                arithmetic: ArithmeticType::Eq,
+                id: counter.eq,
+            }))
+        }
+        "gt" => {
+            counter.gt += 1; // We increment first because 0 is reserved for null
+            Some(Box::new(ArithmeticCommand {
+                command: CommandType::Arithmetic,
+                arithmetic: ArithmeticType::Gt,
+                id: counter.gt,
+            }))
+        }
+        "lt" => {
+            counter.lt += 1; // We increment first because 0 is reserved for null
+            Some(Box::new(ArithmeticCommand {
+                command: CommandType::Arithmetic,
+                arithmetic: ArithmeticType::Lt,
+                id: counter.lt,
+            }))
+        }
         "and" => Some(Box::new(ArithmeticCommand {
             command: CommandType::Arithmetic,
             arithmetic: ArithmeticType::And,
+            id: NULL_ID,
         })),
         "or" => Some(Box::new(ArithmeticCommand {
             command: CommandType::Arithmetic,
             arithmetic: ArithmeticType::Or,
+            id: NULL_ID,
         })),
         "not" => Some(Box::new(ArithmeticCommand {
             command: CommandType::Arithmetic,
             arithmetic: ArithmeticType::Not,
+            id: NULL_ID,
         })),
         _ => None,
     }
@@ -371,9 +379,14 @@ fn main() -> std::io::Result<()> {
     let file = File::open(input_file_path)?;
     let reader = BufReader::new(file);
     let mut commands = vec![];
+    let mut counter = CommandCounter {
+        eq: 0,
+        lt: 0,
+        gt: 0,
+    };
     for line in reader.lines() {
         let line_text = line.unwrap();
-        let command = parse_line(&line_text);
+        let command = parse_line(&line_text, &mut counter);
         if command.is_some() {
             let cmd = command.unwrap();
             // println!(
