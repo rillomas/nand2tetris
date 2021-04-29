@@ -156,7 +156,7 @@ trait Command {
     /// Returns target memory index for push/pop command. Other commands will return none
     fn index(&self) -> Option<MemoryIndex>;
     /// Convert command to corresponding hask asm text
-    fn to_asm_text(&self) -> Result<String, &'static str>;
+    fn to_asm_text(&self) -> Result<String, String>;
 }
 
 /// Counter for specific commands.
@@ -187,10 +187,11 @@ impl Command for MemoryAccessCommand {
     fn index(&self) -> Option<MemoryIndex> {
         Some(self.index)
     }
-    fn to_asm_text(&self) -> Result<String, &'static str> {
+    fn to_asm_text(&self) -> Result<String, String> {
         match self.command {
             CommandType::Push => match self.segment {
                 SegmentType::Constant => {
+                    // push index value to global stack
                     let str = format!(
                         "@{}
 D=A
@@ -204,9 +205,214 @@ M=M+1
                     );
                     Ok(str.to_string())
                 }
-                _ => Err("Unsupported memory segment"),
+                SegmentType::Local => {
+                    // push value from local segment to global stack
+                    let str = format!(
+                        "@{}
+D=A
+@LCL
+A=D+M
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+",
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
+                SegmentType::Argument => {
+                    // push value from argument segment to global stack
+                    let str = format!(
+                        "@{}
+D=A
+@ARG
+A=D+M
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+",
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
+                SegmentType::This => {
+                    // push value from this segment to global stack
+                    let str = format!(
+                        "@{}
+D=A
+@THIS
+A=D+M
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+",
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
+                SegmentType::That => {
+                    // push value from that segment to global stack
+                    let str = format!(
+                        "@{}
+D=A
+@THAT
+A=D+M
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+",
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
+                SegmentType::Temp => {
+                    // push value from temp segment to global stack
+                    let str = format!(
+                        "@{}
+D=A
+@R5
+A=D+A
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+",
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
+                // SegmentType::Pointer => {
+                //     // push value from pointer segment to global stack
+                //     let str = "";
+                //     Ok(str.to_string())
+                // }
+                // SegmentType::Static => {}
+                _other => Err(format!("Unsupported memory segment for Push: {:?}", _other)),
             },
-            _ => Err("Unsupported MemoryAccessCommand"),
+            CommandType::Pop => match self.segment {
+                SegmentType::Local => {
+                    // move value from global stack to local segment
+                    let str = format!(
+                        "@{}
+D=A
+@LCL
+D=D+M
+@targetAddr
+M=D
+@SP
+AM=M-1
+D=M
+@targetAddr
+A=M
+M=D
+",
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
+                SegmentType::Argument => {
+                    // move value from global stack to argument segment
+                    let str = format!(
+                        "@{}
+D=A
+@ARG
+D=D+M
+@targetAddr
+M=D
+@SP
+AM=M-1
+D=M
+@targetAddr
+A=M
+M=D
+",
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
+                SegmentType::This => {
+                    // move value from global stack to this segment
+                    let str = format!(
+                        "@{}
+D=A
+@THIS
+D=D+M
+@targetAddr
+M=D
+@SP
+AM=M-1
+D=M
+@targetAddr
+A=M
+M=D
+",
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
+                SegmentType::That => {
+                    // move value from global stack to that segment
+                    let str = format!(
+                        "@{}
+D=A
+@THAT
+D=D+M
+@targetAddr
+M=D
+@SP
+AM=M-1
+D=M
+@targetAddr
+A=M
+M=D
+",
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
+                SegmentType::Temp => {
+                    // move value from global stack to temp segment (R5 to R12)
+                    let str = format!(
+                        "@{}
+D=A
+@R5
+D=D+A
+@targetAddr
+M=D
+@SP
+AM=M-1
+D=M
+@targetAddr
+A=M
+M=D
+",
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
+                // SegmentType::Pointer => {
+                //     // move value from global stack to pointer segment (R3 to R4)
+                //     let str = "";
+                //     Ok(str.to_string())
+                // }
+                // SegmentType::Static => {}
+                _other => Err(format!("Unsupported memory segment for Pop: {:?}", _other)),
+            },
+            _other => Err(format!("Unsupported MemoryAccessCommand: {:?}", _other)),
         }
     }
 }
@@ -220,8 +426,9 @@ impl MemoryAccessCommand {
             "constant" => SegmentType::Constant,
             "this" => SegmentType::This,
             "that" => SegmentType::That,
+            "temp" => SegmentType::Temp,
             "pointer" => SegmentType::Pointer,
-            _ => panic!("Unknown segment specified"),
+            _other => panic!("Unknown segment specified: {:?}", _other),
         };
         let idx = str::parse::<MemoryIndex>(index);
         MemoryAccessCommand {
@@ -254,7 +461,7 @@ impl Command for ArithmeticCommand {
     fn index(&self) -> Option<MemoryIndex> {
         None
     }
-    fn to_asm_text(&self) -> Result<String, &'static str> {
+    fn to_asm_text(&self) -> Result<String, String> {
         match self.arithmetic {
             ArithmeticType::Add => Ok(ADD_STR.to_string()),
             ArithmeticType::Sub => Ok(SUB_STR.to_string()),
@@ -336,7 +543,6 @@ M=D
 ",
                 self.id
             )),
-            _ => Err("Unsupported Arithmetic type"),
         }
     }
 }
@@ -358,7 +564,7 @@ fn parse_line(line: &str, counter: &mut CommandCounter) -> Option<Box<dyn Comman
             itr.next().unwrap(),
         ))),
         "pop" => Some(Box::new(MemoryAccessCommand::new(
-            CommandType::Push,
+            CommandType::Pop,
             itr.next().unwrap(),
             itr.next().unwrap(),
         ))),
