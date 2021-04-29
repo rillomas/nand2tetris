@@ -58,12 +58,12 @@ enum SegmentType {
 const NULL_ID: CommandID = 0;
 const COMMENT_SYMBOL: &str = "//";
 
-const STATIC_VAR_START: u32 = 16;
-const STATIC_VAR_SIZE: u32 = 240;
-const STACK_START_OFFSET: u32 = 256;
-const STACK_SIZE: u32 = 1792;
-const HEAP_START_OFFSET: u32 = 2048;
-const HEAP_SIZE: u32 = 14436;
+// const STATIC_VAR_START: u32 = 16;
+// const STATIC_VAR_SIZE: u32 = 240;
+// const STACK_START_OFFSET: u32 = 256;
+// const STACK_SIZE: u32 = 1792;
+// const HEAP_START_OFFSET: u32 = 2048;
+// const HEAP_SIZE: u32 = 14436;
 
 const ADD_STR: &'static str = "@SP
 A=M
@@ -269,11 +269,11 @@ A=M
 A=A-1
 D=M
 A=A-1
-D=D-M
-@ISEQ.{0}
+D=M-D
+@IsEq.{0}
 D;JEQ
 D=-1
-(ISEQ.{0})
+(IsEq.{0})
 @SP
 A=M-1
 A=A-1
@@ -284,8 +284,59 @@ M=D
 ",
                 self.id
             )),
-            // _ => Err("Unsupported Arithmetic type"),
-            _ => Ok("".to_string()),
+            ArithmeticType::Lt => Ok(format!(
+                // use the ID to create a unique jump label for each command
+                "@SP
+A=M
+A=A-1
+D=M
+A=A-1
+D=M-D
+@IsGe.{0}
+D;JGE
+D=-1
+@WriteLtOutput.{0}
+0;JMP
+(IsGe.{0})
+D=0
+(WriteLtOutput.{0})
+@SP
+A=M-1
+A=A-1
+M=D
+D=A+1
+@SP
+M=D
+",
+                self.id
+            )),
+            ArithmeticType::Gt => Ok(format!(
+                // use the ID to create a unique jump label for each command
+                "@SP
+A=M
+A=A-1
+D=M
+A=A-1
+D=M-D
+@IsGt.{0}
+D;JGT
+D=0
+@WriteGtOutput.{0}
+0;JMP
+(IsGt.{0})
+D=-1
+(WriteGtOutput.{0})
+@SP
+A=M-1
+A=A-1
+M=D
+D=A+1
+@SP
+M=D
+",
+                self.id
+            )),
+            _ => Err("Unsupported Arithmetic type"),
         }
     }
 }
