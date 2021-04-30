@@ -58,13 +58,6 @@ enum SegmentType {
 const NULL_ID: CommandID = 0;
 const COMMENT_SYMBOL: &str = "//";
 
-// const STATIC_VAR_START: u32 = 16;
-// const STATIC_VAR_SIZE: u32 = 240;
-// const STACK_START_OFFSET: u32 = 256;
-// const STACK_SIZE: u32 = 1792;
-// const HEAP_START_OFFSET: u32 = 2048;
-// const HEAP_SIZE: u32 = 14436;
-
 const ADD_STR: &'static str = "@SP
 A=M
 A=A-1
@@ -295,11 +288,24 @@ M=M+1
                     );
                     Ok(str.to_string())
                 }
-                // SegmentType::Pointer => {
-                //     // push value from pointer segment to global stack
-                //     let str = "";
-                //     Ok(str.to_string())
-                // }
+                SegmentType::Pointer => {
+                    // push value from pointer segment to global stack
+                    let str = format!(
+                        "@{}
+D=A
+@R3
+A=D+A
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+",
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
                 // SegmentType::Static => {}
                 _other => Err(format!("Unsupported memory segment for Push: {:?}", _other)),
             },
@@ -404,11 +410,26 @@ M=D
                     );
                     Ok(str.to_string())
                 }
-                // SegmentType::Pointer => {
-                //     // move value from global stack to pointer segment (R3 to R4)
-                //     let str = "";
-                //     Ok(str.to_string())
-                // }
+                SegmentType::Pointer => {
+                    // move value from global stack to pointer segment (R3 to R4)
+                    let str = format!(
+                        "@{}
+D=A
+@R3
+D=D+A
+@targetAddr
+M=D
+@SP
+AM=M-1
+D=M
+@targetAddr
+A=M
+M=D
+",
+                        self.index
+                    );
+                    Ok(str.to_string())
+                }
                 // SegmentType::Static => {}
                 _other => Err(format!("Unsupported memory segment for Pop: {:?}", _other)),
             },
