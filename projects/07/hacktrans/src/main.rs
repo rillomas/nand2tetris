@@ -1,6 +1,6 @@
 use clap::{AppSettings, Clap};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Seek, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Clap)]
@@ -34,12 +34,12 @@ enum CommandType {
     Arithmetic,
     Push,
     Pop,
-    Label,
-    GoTo,
-    If,
-    Function,
-    Return,
-    Call,
+    // Label,
+    // GoTo,
+    // If,
+    // Function,
+    // Return,
+    // Call,
 }
 
 /// Type of segment for VM memory access (push, pop)
@@ -149,7 +149,8 @@ trait Command {
     /// Returns target memory index for push/pop command. Other commands will return none
     fn index(&self) -> Option<MemoryIndex>;
     /// Convert command to corresponding hask asm text
-    fn to_asm_text(&self) -> Result<String, String>;
+    /// prefix is used as a unique string for marking labels unique to the input file
+    fn to_asm_text(&self, prefix: &String) -> Result<String, String>;
 }
 
 /// Counter for specific commands.
@@ -180,7 +181,9 @@ impl Command for MemoryAccessCommand {
     fn index(&self) -> Option<MemoryIndex> {
         Some(self.index)
     }
-    fn to_asm_text(&self) -> Result<String, String> {
+    fn to_asm_text(&self, prefix: &String) -> Result<String, String> {
+        let tmp_symbol = format!("{}.tmp", prefix);
+        let static_symbol = format!("{}.{}", prefix, self.index);
         match self.command {
             CommandType::Push => match self.segment {
                 SegmentType::Constant => {
@@ -306,8 +309,21 @@ M=M+1
                     );
                     Ok(str.to_string())
                 }
-                // SegmentType::Static => {}
-                _other => Err(format!("Unsupported memory segment for Push: {:?}", _other)),
+                SegmentType::Static => {
+                    // push value from static segment to global stack
+                    let str = format!(
+                        "@{}
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+",
+                        static_symbol
+                    );
+                    Ok(str.to_string())
+                }
             },
             CommandType::Pop => match self.segment {
                 SegmentType::Local => {
@@ -317,16 +333,16 @@ M=M+1
 D=A
 @LCL
 D=D+M
-@targetAddr
+@{1}
 M=D
 @SP
 AM=M-1
 D=M
-@targetAddr
+@{1}
 A=M
 M=D
 ",
-                        self.index
+                        self.index, tmp_symbol
                     );
                     Ok(str.to_string())
                 }
@@ -337,16 +353,16 @@ M=D
 D=A
 @ARG
 D=D+M
-@targetAddr
+@{1}
 M=D
 @SP
 AM=M-1
 D=M
-@targetAddr
+@{1}
 A=M
 M=D
 ",
-                        self.index
+                        self.index, tmp_symbol
                     );
                     Ok(str.to_string())
                 }
@@ -357,16 +373,16 @@ M=D
 D=A
 @THIS
 D=D+M
-@targetAddr
+@{1}
 M=D
 @SP
 AM=M-1
 D=M
-@targetAddr
+@{1}
 A=M
 M=D
 ",
-                        self.index
+                        self.index, tmp_symbol
                     );
                     Ok(str.to_string())
                 }
@@ -377,16 +393,16 @@ M=D
 D=A
 @THAT
 D=D+M
-@targetAddr
+@{1}
 M=D
 @SP
 AM=M-1
 D=M
-@targetAddr
+@{1}
 A=M
 M=D
 ",
-                        self.index
+                        self.index, tmp_symbol
                     );
                     Ok(str.to_string())
                 }
@@ -397,16 +413,16 @@ M=D
 D=A
 @R5
 D=D+A
-@targetAddr
+@{1}
 M=D
 @SP
 AM=M-1
 D=M
-@targetAddr
+@{1}
 A=M
 M=D
 ",
-                        self.index
+                        self.index, tmp_symbol
                     );
                     Ok(str.to_string())
                 }
@@ -417,20 +433,32 @@ M=D
 D=A
 @R3
 D=D+A
-@targetAddr
+@{1}
 M=D
 @SP
 AM=M-1
 D=M
-@targetAddr
+@{1}
 A=M
 M=D
 ",
-                        self.index
+                        self.index, tmp_symbol
                     );
                     Ok(str.to_string())
                 }
-                // SegmentType::Static => {}
+                SegmentType::Static => {
+                    // move value from global stack to static segment (variable)
+                    let str = format!(
+                        "@SP
+AM=M-1
+D=M
+@{}
+M=D
+",
+                        static_symbol
+                    );
+                    Ok(str.to_string())
+                }
                 _other => Err(format!("Unsupported memory segment for Pop: {:?}", _other)),
             },
             _other => Err(format!("Unsupported MemoryAccessCommand: {:?}", _other)),
@@ -482,7 +510,7 @@ impl Command for ArithmeticCommand {
     fn index(&self) -> Option<MemoryIndex> {
         None
     }
-    fn to_asm_text(&self) -> Result<String, String> {
+    fn to_asm_text(&self, _prefix: &String) -> Result<String, String> {
         match self.arithmetic {
             ArithmeticType::Add => Ok(ADD_STR.to_string()),
             ArithmeticType::Sub => Ok(SUB_STR.to_string()),
@@ -679,10 +707,16 @@ fn main() -> std::io::Result<()> {
     }
 
     // convert VM commands to hack asm
-    let mut out_file = File::create(output_file_path)?;
+    let mut out_file = File::create(output_file_path).unwrap();
+    let prefix = input_file_path
+        .file_stem()
+        .unwrap()
+        .to_os_string()
+        .into_string()
+        .unwrap();
     for cmd in commands {
         let _written = out_file
-            .write(cmd.to_asm_text().unwrap().as_bytes())
+            .write(cmd.to_asm_text(&prefix).unwrap().as_bytes())
             .unwrap();
     }
     // Add loop at the end to avoid code injection
