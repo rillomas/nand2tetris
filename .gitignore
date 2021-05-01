@@ -2,3 +2,5 @@
 *.tst
 *.out
 *.hack
+projects/hacktrans/target
+projects/06/hackasm/target

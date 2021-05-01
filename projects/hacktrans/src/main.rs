@@ -34,9 +34,9 @@ enum CommandType {
     Arithmetic,
     Push,
     Pop,
-    // Label,
-    // GoTo,
-    // If,
+    Label,
+    GoTo,
+    If,
     // Function,
     // Return,
     // Call,
@@ -139,16 +139,9 @@ fn remove_comment(line: &str) -> &str {
     }
 }
 
-trait Command {
+trait Command: std::fmt::Debug {
     /// Returns current command's command type
     fn command_type(&self) -> CommandType;
-    /// Returns current command's segment for push/pop command. Other commands will return None
-    fn segment(&self) -> Option<SegmentType>;
-    /// Returns current command's arithmetic type for arithmetic command. Other commands will return None
-    fn arithmetic_type(&self) -> Option<ArithmeticType>;
-    /// Returns target memory index for push/pop command. Other commands will return none
-    fn index(&self) -> Option<MemoryIndex>;
-    /// Convert command to corresponding hask asm text
     /// prefix is used as a unique string for marking labels unique to the input file
     fn to_asm_text(&self, prefix: &String) -> Result<String, String>;
 }
@@ -162,24 +155,31 @@ struct CommandCounter {
     lt: CommandID,
 }
 
+#[derive(Debug)]
 struct MemoryAccessCommand {
     command: CommandType,
     segment: SegmentType,
     index: MemoryIndex,
 }
 
-impl Command for MemoryAccessCommand {
+#[derive(Debug)]
+struct ProgramFlowCommand {
+    command: CommandType,
+    symbol: String,
+}
+
+impl Command for ProgramFlowCommand {
     fn command_type(&self) -> CommandType {
         self.command
     }
-    fn segment(&self) -> Option<SegmentType> {
-        Some(self.segment)
+    fn to_asm_text(&self, prefix: &String) -> Result<String, String> {
+        Ok("".to_string())
     }
-    fn arithmetic_type(&self) -> Option<ArithmeticType> {
-        None
-    }
-    fn index(&self) -> Option<MemoryIndex> {
-        Some(self.index)
+}
+
+impl Command for MemoryAccessCommand {
+    fn command_type(&self) -> CommandType {
+        self.command
     }
     fn to_asm_text(&self, prefix: &String) -> Result<String, String> {
         let tmp_symbol = format!("{}.tmp", prefix);
@@ -488,6 +488,7 @@ impl MemoryAccessCommand {
     }
 }
 
+#[derive(Debug)]
 struct ArithmeticCommand {
     command: CommandType,
     arithmetic: ArithmeticType,
@@ -501,15 +502,7 @@ impl Command for ArithmeticCommand {
     fn command_type(&self) -> CommandType {
         self.command
     }
-    fn segment(&self) -> Option<SegmentType> {
-        None
-    }
-    fn arithmetic_type(&self) -> Option<ArithmeticType> {
-        Some(self.arithmetic)
-    }
-    fn index(&self) -> Option<MemoryIndex> {
-        None
-    }
+
     fn to_asm_text(&self, _prefix: &String) -> Result<String, String> {
         match self.arithmetic {
             ArithmeticType::Add => Ok(ADD_STR.to_string()),
@@ -671,6 +664,18 @@ fn parse_line(line: &str, counter: &mut CommandCounter) -> Option<Box<dyn Comman
             arithmetic: ArithmeticType::Not,
             id: NULL_ID,
         })),
+        "label" => Some(Box::new(ProgramFlowCommand {
+            command: CommandType::Label,
+            symbol: itr.next().unwrap().to_string(),
+        })),
+        "goto" => Some(Box::new(ProgramFlowCommand {
+            command: CommandType::GoTo,
+            symbol: itr.next().unwrap().to_string(),
+        })),
+        "if-goto" => Some(Box::new(ProgramFlowCommand {
+            command: CommandType::If,
+            symbol: itr.next().unwrap().to_string(),
+        })),
         _ => None,
     }
 }
@@ -695,31 +700,25 @@ fn main() -> std::io::Result<()> {
         let command = parse_line(&line_text, &mut counter);
         if command.is_some() {
             let cmd = command.unwrap();
-            // println!(
-            //     "{:?} {:?} {:?} {:?}",
-            //     cmd.command_type(),
-            //     cmd.arithmetic_type(),
-            //     cmd.segment(),
-            //     cmd.index()
-            // );
+            println!("{:?}", cmd);
             commands.push(cmd);
         }
     }
 
-    // convert VM commands to hack asm
-    let mut out_file = File::create(output_file_path).unwrap();
-    let prefix = input_file_path
-        .file_stem()
-        .unwrap()
-        .to_os_string()
-        .into_string()
-        .unwrap();
-    for cmd in commands {
-        let _written = out_file
-            .write(cmd.to_asm_text(&prefix).unwrap().as_bytes())
-            .unwrap();
-    }
-    // Add loop at the end to avoid code injection
-    let _written = out_file.write(LOOP_STR.as_bytes());
+    // // convert VM commands to hack asm
+    // let mut out_file = File::create(output_file_path).unwrap();
+    // let prefix = input_file_path
+    //     .file_stem()
+    //     .unwrap()
+    //     .to_os_string()
+    //     .into_string()
+    //     .unwrap();
+    // for cmd in commands {
+    //     let _written = out_file
+    //         .write(cmd.to_asm_text(&prefix).unwrap().as_bytes())
+    //         .unwrap();
+    // }
+    // // Add loop at the end to avoid code injection
+    // let _written = out_file.write(LOOP_STR.as_bytes());
     Ok(())
 }
