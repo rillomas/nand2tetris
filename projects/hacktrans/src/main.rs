@@ -2,6 +2,14 @@ use clap::{AppSettings, Clap};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+mod command;
+use command::Arithmetic;
+use command::ArithmeticType;
+use command::Command;
+use command::CommandType;
+use command::MemoryAccess;
+use command::ProgramFlow;
+use command::NULL_ID;
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Masato Nakasaka <rillomas@gmail.com>")]
@@ -10,118 +18,7 @@ struct Opts {
     #[clap(short)]
     input_file: String,
 }
-
-type MemoryIndex = u32;
-type CommandID = u32;
-
-/// Type of arithmetic command
-#[derive(Debug, Copy, Clone)]
-enum ArithmeticType {
-    Add,
-    Sub,
-    Neg,
-    Eq,
-    Gt,
-    Lt,
-    And,
-    Or,
-    Not,
-}
-
-/// Type of VM command
-#[derive(Debug, Copy, Clone)]
-enum CommandType {
-    Arithmetic,
-    Push,
-    Pop,
-    Label,
-    GoTo,
-    If,
-    // Function,
-    // Return,
-    // Call,
-}
-
-/// Type of segment for VM memory access (push, pop)
-#[derive(Debug, Copy, Clone)]
-enum SegmentType {
-    Argument,
-    Local,
-    Static,
-    Constant,
-    This,
-    That,
-    Pointer,
-    Temp,
-}
-
-const NULL_ID: CommandID = 0;
 const COMMENT_SYMBOL: &str = "//";
-
-const ADD_STR: &'static str = "@SP
-A=M
-A=A-1
-D=M
-A=A-1
-M=D+M
-D=A+1
-@SP
-M=D
-";
-
-const SUB_STR: &'static str = "@SP
-A=M
-A=A-1
-D=M
-A=A-1
-M=M-D
-D=A+1
-@SP
-M=D
-";
-
-const AND_STR: &'static str = "@SP
-A=M
-A=A-1
-D=M
-A=A-1
-M=D&M
-D=A+1
-@SP
-M=D
-";
-
-const OR_STR: &'static str = "@SP
-A=M
-A=A-1
-D=M
-A=A-1
-M=D|M
-D=A+1
-@SP
-M=D
-";
-
-const NEG_STR: &'static str = "@SP
-A=M
-A=A-1
-D=M
-M=-M
-D=A+1
-@SP
-M=D
-";
-
-const NOT_STR: &'static str = "@SP
-A=M
-A=A-1
-D=M
-M=!M
-D=A+1
-@SP
-M=D
-";
-
 const LOOP_STR: &'static str = "(LOOP_AT_END)
 @LOOP_AT_END
 0;JMP
@@ -139,457 +36,7 @@ fn remove_comment(line: &str) -> &str {
     }
 }
 
-trait Command: std::fmt::Debug {
-    /// Returns current command's command type
-    fn command_type(&self) -> CommandType;
-    /// prefix is used as a unique string for marking labels unique to the input file
-    fn to_asm_text(&self, prefix: &String) -> Result<String, String>;
-}
-
-/// Counter for specific commands.
-/// We need to count the number to create a unique ID to use as jump labels in each command.
-/// Without this we will have clashing jump lables each time we use eq, gt, and lt.
-struct CommandCounter {
-    eq: CommandID,
-    gt: CommandID,
-    lt: CommandID,
-}
-
-#[derive(Debug)]
-struct MemoryAccessCommand {
-    command: CommandType,
-    segment: SegmentType,
-    index: MemoryIndex,
-}
-
-#[derive(Debug)]
-struct ProgramFlowCommand {
-    command: CommandType,
-    symbol: String,
-}
-
-impl Command for ProgramFlowCommand {
-    fn command_type(&self) -> CommandType {
-        self.command
-    }
-    fn to_asm_text(&self, prefix: &String) -> Result<String, String> {
-        Ok("".to_string())
-    }
-}
-
-impl Command for MemoryAccessCommand {
-    fn command_type(&self) -> CommandType {
-        self.command
-    }
-    fn to_asm_text(&self, prefix: &String) -> Result<String, String> {
-        let tmp_symbol = format!("{}.tmp", prefix);
-        let static_symbol = format!("{}.{}", prefix, self.index);
-        match self.command {
-            CommandType::Push => match self.segment {
-                SegmentType::Constant => {
-                    // push index value to global stack
-                    let str = format!(
-                        "@{}
-D=A
-@SP
-A=M
-M=D
-@SP
-M=M+1
-",
-                        self.index
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::Local => {
-                    // push value from local segment to global stack
-                    let str = format!(
-                        "@{}
-D=A
-@LCL
-A=D+M
-D=M
-@SP
-A=M
-M=D
-@SP
-M=M+1
-",
-                        self.index
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::Argument => {
-                    // push value from argument segment to global stack
-                    let str = format!(
-                        "@{}
-D=A
-@ARG
-A=D+M
-D=M
-@SP
-A=M
-M=D
-@SP
-M=M+1
-",
-                        self.index
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::This => {
-                    // push value from this segment to global stack
-                    let str = format!(
-                        "@{}
-D=A
-@THIS
-A=D+M
-D=M
-@SP
-A=M
-M=D
-@SP
-M=M+1
-",
-                        self.index
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::That => {
-                    // push value from that segment to global stack
-                    let str = format!(
-                        "@{}
-D=A
-@THAT
-A=D+M
-D=M
-@SP
-A=M
-M=D
-@SP
-M=M+1
-",
-                        self.index
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::Temp => {
-                    // push value from temp segment to global stack
-                    let str = format!(
-                        "@{}
-D=A
-@R5
-A=D+A
-D=M
-@SP
-A=M
-M=D
-@SP
-M=M+1
-",
-                        self.index
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::Pointer => {
-                    // push value from pointer segment to global stack
-                    let str = format!(
-                        "@{}
-D=A
-@R3
-A=D+A
-D=M
-@SP
-A=M
-M=D
-@SP
-M=M+1
-",
-                        self.index
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::Static => {
-                    // push value from static segment to global stack
-                    let str = format!(
-                        "@{}
-D=M
-@SP
-A=M
-M=D
-@SP
-M=M+1
-",
-                        static_symbol
-                    );
-                    Ok(str.to_string())
-                }
-            },
-            CommandType::Pop => match self.segment {
-                SegmentType::Local => {
-                    // move value from global stack to local segment
-                    let str = format!(
-                        "@{}
-D=A
-@LCL
-D=D+M
-@{1}
-M=D
-@SP
-AM=M-1
-D=M
-@{1}
-A=M
-M=D
-",
-                        self.index, tmp_symbol
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::Argument => {
-                    // move value from global stack to argument segment
-                    let str = format!(
-                        "@{}
-D=A
-@ARG
-D=D+M
-@{1}
-M=D
-@SP
-AM=M-1
-D=M
-@{1}
-A=M
-M=D
-",
-                        self.index, tmp_symbol
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::This => {
-                    // move value from global stack to this segment
-                    let str = format!(
-                        "@{}
-D=A
-@THIS
-D=D+M
-@{1}
-M=D
-@SP
-AM=M-1
-D=M
-@{1}
-A=M
-M=D
-",
-                        self.index, tmp_symbol
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::That => {
-                    // move value from global stack to that segment
-                    let str = format!(
-                        "@{}
-D=A
-@THAT
-D=D+M
-@{1}
-M=D
-@SP
-AM=M-1
-D=M
-@{1}
-A=M
-M=D
-",
-                        self.index, tmp_symbol
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::Temp => {
-                    // move value from global stack to temp segment (R5 to R12)
-                    let str = format!(
-                        "@{}
-D=A
-@R5
-D=D+A
-@{1}
-M=D
-@SP
-AM=M-1
-D=M
-@{1}
-A=M
-M=D
-",
-                        self.index, tmp_symbol
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::Pointer => {
-                    // move value from global stack to pointer segment (R3 to R4)
-                    let str = format!(
-                        "@{}
-D=A
-@R3
-D=D+A
-@{1}
-M=D
-@SP
-AM=M-1
-D=M
-@{1}
-A=M
-M=D
-",
-                        self.index, tmp_symbol
-                    );
-                    Ok(str.to_string())
-                }
-                SegmentType::Static => {
-                    // move value from global stack to static segment (variable)
-                    let str = format!(
-                        "@SP
-AM=M-1
-D=M
-@{}
-M=D
-",
-                        static_symbol
-                    );
-                    Ok(str.to_string())
-                }
-                _other => Err(format!("Unsupported memory segment for Pop: {:?}", _other)),
-            },
-            _other => Err(format!("Unsupported MemoryAccessCommand: {:?}", _other)),
-        }
-    }
-}
-
-impl MemoryAccessCommand {
-    fn new(command: CommandType, segment: &str, index: &str) -> MemoryAccessCommand {
-        let seg = match segment {
-            "argument" => SegmentType::Argument,
-            "local" => SegmentType::Local,
-            "static" => SegmentType::Static,
-            "constant" => SegmentType::Constant,
-            "this" => SegmentType::This,
-            "that" => SegmentType::That,
-            "temp" => SegmentType::Temp,
-            "pointer" => SegmentType::Pointer,
-            _other => panic!("Unknown segment specified: {:?}", _other),
-        };
-        let idx = str::parse::<MemoryIndex>(index);
-        MemoryAccessCommand {
-            command: command,
-            segment: seg,
-            index: idx.unwrap(),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct ArithmeticCommand {
-    command: CommandType,
-    arithmetic: ArithmeticType,
-    /// Unique ID of command within the same command group.
-    /// This is used to create unique jump labels per command.
-    /// If this is 0 (NULL_ID) it means it is not used for this command
-    id: CommandID,
-}
-
-impl Command for ArithmeticCommand {
-    fn command_type(&self) -> CommandType {
-        self.command
-    }
-
-    fn to_asm_text(&self, _prefix: &String) -> Result<String, String> {
-        match self.arithmetic {
-            ArithmeticType::Add => Ok(ADD_STR.to_string()),
-            ArithmeticType::Sub => Ok(SUB_STR.to_string()),
-            ArithmeticType::And => Ok(AND_STR.to_string()),
-            ArithmeticType::Or => Ok(OR_STR.to_string()),
-            ArithmeticType::Neg => Ok(NEG_STR.to_string()),
-            ArithmeticType::Not => Ok(NOT_STR.to_string()),
-            ArithmeticType::Eq => Ok(format!(
-                // use the ID to create a unique jump label for each command
-                "@SP
-A=M
-A=A-1
-D=M
-A=A-1
-D=M-D
-@IsEq.{0}
-D;JEQ
-D=-1
-(IsEq.{0})
-@SP
-A=M-1
-A=A-1
-M=!D
-D=A+1
-@SP
-M=D
-",
-                self.id
-            )),
-            ArithmeticType::Lt => Ok(format!(
-                // use the ID to create a unique jump label for each command
-                "@SP
-A=M
-A=A-1
-D=M
-A=A-1
-D=M-D
-@IsGe.{0}
-D;JGE
-D=-1
-@WriteLtOutput.{0}
-0;JMP
-(IsGe.{0})
-D=0
-(WriteLtOutput.{0})
-@SP
-A=M-1
-A=A-1
-M=D
-D=A+1
-@SP
-M=D
-",
-                self.id
-            )),
-            ArithmeticType::Gt => Ok(format!(
-                // use the ID to create a unique jump label for each command
-                "@SP
-A=M
-A=A-1
-D=M
-A=A-1
-D=M-D
-@IsGt.{0}
-D;JGT
-D=0
-@WriteGtOutput.{0}
-0;JMP
-(IsGt.{0})
-D=-1
-(WriteGtOutput.{0})
-@SP
-A=M-1
-A=A-1
-M=D
-D=A+1
-@SP
-M=D
-",
-                self.id
-            )),
-        }
-    }
-}
-
-fn parse_line(line: &str, counter: &mut CommandCounter) -> Option<Box<dyn Command>> {
+fn parse_line(line: &str, counter: &mut command::Counter) -> Option<Box<dyn Command>> {
     let mut code = remove_comment(line);
     code = code.trim();
     if code.is_empty() {
@@ -600,82 +47,46 @@ fn parse_line(line: &str, counter: &mut CommandCounter) -> Option<Box<dyn Comman
     // We should always have a valid first clause
     let command = itr.next().unwrap();
     match command {
-        "push" => Some(Box::new(MemoryAccessCommand::new(
+        "push" => Some(Box::new(command::MemoryAccess::new(
             CommandType::Push,
             itr.next().unwrap(),
             itr.next().unwrap(),
         ))),
-        "pop" => Some(Box::new(MemoryAccessCommand::new(
+        "pop" => Some(Box::new(MemoryAccess::new(
             CommandType::Pop,
             itr.next().unwrap(),
             itr.next().unwrap(),
         ))),
-        "add" => Some(Box::new(ArithmeticCommand {
-            command: CommandType::Arithmetic,
-            arithmetic: ArithmeticType::Add,
-            id: NULL_ID,
-        })),
-        "sub" => Some(Box::new(ArithmeticCommand {
-            command: CommandType::Arithmetic,
-            arithmetic: ArithmeticType::Sub,
-            id: NULL_ID,
-        })),
-        "neg" => Some(Box::new(ArithmeticCommand {
-            command: CommandType::Arithmetic,
-            arithmetic: ArithmeticType::Neg,
-            id: NULL_ID,
-        })),
+        "add" => Some(Box::new(Arithmetic::new(ArithmeticType::Add, NULL_ID))),
+        "sub" => Some(Box::new(Arithmetic::new(ArithmeticType::Sub, NULL_ID))),
+        "neg" => Some(Box::new(Arithmetic::new(ArithmeticType::Neg, NULL_ID))),
         "eq" => {
             counter.eq += 1; // We increment first because 0 is reserved for null
-            Some(Box::new(ArithmeticCommand {
-                command: CommandType::Arithmetic,
-                arithmetic: ArithmeticType::Eq,
-                id: counter.eq,
-            }))
+            Some(Box::new(Arithmetic::new(ArithmeticType::Eq, counter.eq)))
         }
         "gt" => {
             counter.gt += 1; // We increment first because 0 is reserved for null
-            Some(Box::new(ArithmeticCommand {
-                command: CommandType::Arithmetic,
-                arithmetic: ArithmeticType::Gt,
-                id: counter.gt,
-            }))
+            Some(Box::new(Arithmetic::new(ArithmeticType::Gt, counter.gt)))
         }
         "lt" => {
             counter.lt += 1; // We increment first because 0 is reserved for null
-            Some(Box::new(ArithmeticCommand {
-                command: CommandType::Arithmetic,
-                arithmetic: ArithmeticType::Lt,
-                id: counter.lt,
-            }))
+            Some(Box::new(Arithmetic::new(ArithmeticType::Lt, counter.lt)))
         }
-        "and" => Some(Box::new(ArithmeticCommand {
-            command: CommandType::Arithmetic,
-            arithmetic: ArithmeticType::And,
-            id: NULL_ID,
-        })),
-        "or" => Some(Box::new(ArithmeticCommand {
-            command: CommandType::Arithmetic,
-            arithmetic: ArithmeticType::Or,
-            id: NULL_ID,
-        })),
-        "not" => Some(Box::new(ArithmeticCommand {
-            command: CommandType::Arithmetic,
-            arithmetic: ArithmeticType::Not,
-            id: NULL_ID,
-        })),
-        "label" => Some(Box::new(ProgramFlowCommand {
-            command: CommandType::Label,
-            symbol: itr.next().unwrap().to_string(),
-        })),
-        "goto" => Some(Box::new(ProgramFlowCommand {
-            command: CommandType::GoTo,
-            symbol: itr.next().unwrap().to_string(),
-        })),
-        "if-goto" => Some(Box::new(ProgramFlowCommand {
-            command: CommandType::If,
-            symbol: itr.next().unwrap().to_string(),
-        })),
+        "and" => Some(Box::new(Arithmetic::new(ArithmeticType::And, NULL_ID))),
+        "or" => Some(Box::new(Arithmetic::new(ArithmeticType::Or, NULL_ID))),
+        "not" => Some(Box::new(Arithmetic::new(ArithmeticType::Not, NULL_ID))),
+        "label" => Some(Box::new(ProgramFlow::new(
+            CommandType::Label,
+            itr.next().unwrap().to_string(),
+        ))),
+        "goto" => Some(Box::new(ProgramFlow::new(
+            CommandType::GoTo,
+            itr.next().unwrap().to_string(),
+        ))),
+        "if-goto" => Some(Box::new(ProgramFlow::new(
+            CommandType::If,
+            itr.next().unwrap().to_string(),
+        ))),
         _ => None,
     }
 }
@@ -690,7 +101,7 @@ fn main() -> std::io::Result<()> {
     let file = File::open(input_file_path)?;
     let reader = BufReader::new(file);
     let mut commands = vec![];
-    let mut counter = CommandCounter {
+    let mut counter = command::Counter {
         eq: 0,
         lt: 0,
         gt: 0,
@@ -700,25 +111,25 @@ fn main() -> std::io::Result<()> {
         let command = parse_line(&line_text, &mut counter);
         if command.is_some() {
             let cmd = command.unwrap();
-            println!("{:?}", cmd);
+            // println!("{:?}", cmd);
             commands.push(cmd);
         }
     }
 
-    // // convert VM commands to hack asm
-    // let mut out_file = File::create(output_file_path).unwrap();
-    // let prefix = input_file_path
-    //     .file_stem()
-    //     .unwrap()
-    //     .to_os_string()
-    //     .into_string()
-    //     .unwrap();
-    // for cmd in commands {
-    //     let _written = out_file
-    //         .write(cmd.to_asm_text(&prefix).unwrap().as_bytes())
-    //         .unwrap();
-    // }
-    // // Add loop at the end to avoid code injection
-    // let _written = out_file.write(LOOP_STR.as_bytes());
+    // convert VM commands to hack asm
+    let mut out_file = File::create(output_file_path).unwrap();
+    let prefix = input_file_path
+        .file_stem()
+        .unwrap()
+        .to_os_string()
+        .into_string()
+        .unwrap();
+    for cmd in commands {
+        let _written = out_file
+            .write(cmd.to_asm_text(&prefix).unwrap().as_bytes())
+            .unwrap();
+    }
+    // Add loop at the end to avoid code injection
+    let _written = out_file.write(LOOP_STR.as_bytes());
     Ok(())
 }
