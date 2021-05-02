@@ -7,6 +7,7 @@ use command::Arithmetic;
 use command::ArithmeticType;
 use command::Command;
 use command::CommandType;
+use command::Function;
 use command::MemoryAccess;
 use command::ProgramFlow;
 use command::NULL_ID;
@@ -87,6 +88,12 @@ fn parse_line(line: &str, counter: &mut command::Counter) -> Option<Box<dyn Comm
             CommandType::If,
             itr.next().unwrap().to_string(),
         ))),
+        "function" => Some(Box::new(Function::new(
+            CommandType::Function,
+            Some(itr.next().unwrap().to_string()),
+            Some(str::parse::<u16>(itr.next().unwrap()).unwrap()),
+        ))),
+        "return" => Some(Box::new(Function::new(CommandType::Return, None, None))),
         _ => None,
     }
 }
@@ -111,7 +118,7 @@ fn main() -> std::io::Result<()> {
         let command = parse_line(&line_text, &mut counter);
         if command.is_some() {
             let cmd = command.unwrap();
-            // println!("{:?}", cmd);
+            println!("{:?}", cmd);
             commands.push(cmd);
         }
     }

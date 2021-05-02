@@ -24,8 +24,8 @@ pub enum CommandType {
 	Label,
 	GoTo,
 	If,
-	// Function,
-	// Return,
+	Function,
+	Return,
 	// Call,
 }
 
@@ -72,6 +72,13 @@ pub struct MemoryAccess {
 pub struct ProgramFlow {
 	command: CommandType,
 	symbol: String,
+}
+
+#[derive(Debug)]
+pub struct Function {
+	command: CommandType,
+	name: Option<String>,
+	argument_num: Option<u16>,
 }
 
 pub const NULL_ID: CommandID = 0;
@@ -140,6 +147,7 @@ D=A+1
 M=D
 ";
 
+/// General interface for all commands in VM
 pub trait Command: std::fmt::Debug {
 	/// Returns current command's command type
 	fn command_type(&self) -> CommandType;
@@ -192,6 +200,24 @@ D;JNE
 			}
 			_other => Err(format!("Unsupported CommandType: {:?}", _other)),
 		}
+	}
+}
+
+impl Function {
+	pub fn new(command: CommandType, name: Option<String>, arg_num: Option<u16>) -> Function {
+		Function {
+			command: command,
+			name: name,
+			argument_num: arg_num,
+		}
+	}
+}
+impl Command for Function {
+	fn command_type(&self) -> CommandType {
+		self.command
+	}
+	fn to_asm_text(&self, prefix: &String) -> Result<String, String> {
+		Ok("".to_string())
 	}
 }
 
