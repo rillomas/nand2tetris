@@ -180,6 +180,16 @@ D;JNE
 				);
 				Ok(str.to_string())
 			}
+			CommandType::GoTo => {
+				// Jump to specified label
+				let str = format!(
+					"@{}
+0;JMP
+",
+					target_label
+				);
+				Ok(str.to_string())
+			}
 			_other => Err(format!("Unsupported CommandType: {:?}", _other)),
 		}
 	}
