@@ -161,7 +161,27 @@ impl Command for ProgramFlow {
 		self.command
 	}
 	fn to_asm_text(&self, prefix: &String) -> Result<String, String> {
-		Ok("".to_string())
+		let target_label = format!("{}.{}", prefix, self.symbol);
+		match self.command {
+			CommandType::Label => {
+				let str = format!("({})\n", target_label);
+				Ok(str.to_string())
+			}
+			CommandType::If => {
+				// pop the top value of stack, and if it is not 0 we jump
+				let str = format!(
+					"@SP
+AM=M-1
+D=M
+@{}
+D;JNE
+",
+					target_label
+				);
+				Ok(str.to_string())
+			}
+			_other => Err(format!("Unsupported CommandType: {:?}", _other)),
+		}
 	}
 }
 
