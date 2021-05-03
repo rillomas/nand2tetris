@@ -173,7 +173,7 @@ impl Command for ProgramFlow {
 		match self.command {
 			CommandType::Label => {
 				let str = format!("({})\n", target_label);
-				Ok(str.to_string())
+				Ok(str)
 			}
 			CommandType::If => {
 				// pop the top value of stack, and if it is not 0 we jump
@@ -186,7 +186,7 @@ D;JNE
 ",
 					target_label
 				);
-				Ok(str.to_string())
+				Ok(str)
 			}
 			CommandType::GoTo => {
 				// Jump to specified label
@@ -196,7 +196,7 @@ D;JNE
 ",
 					target_label
 				);
-				Ok(str.to_string())
+				Ok(str)
 			}
 			_other => Err(format!("Unsupported CommandType: {:?}", _other)),
 		}
@@ -212,12 +212,101 @@ impl Function {
 		}
 	}
 }
+
 impl Command for Function {
 	fn command_type(&self) -> CommandType {
 		self.command
 	}
 	fn to_asm_text(&self, prefix: &String) -> Result<String, String> {
-		Ok("".to_string())
+		match self.command {
+			CommandType::Function => {
+				// set label and get ready for local variable initialization
+				let mut str = format!(
+					"({})
+@SP
+A=M
+",
+					self.name.as_ref().unwrap()
+				);
+				// initialize local variables to zero
+				for _ in 0..self.argument_num.unwrap() {
+					str.push_str(
+						"M=0
+A=A+1
+",
+					);
+				}
+				// Update stack pointer
+				str.push_str(
+					"D=A
+@SP
+M=D
+",
+				);
+				Ok(str)
+			}
+			CommandType::Return => {
+				let return_address = format!("{}.ret", prefix);
+				// store return address,
+				// push return value,
+				// reposition stack pointer
+				// restore segment address values
+				// and jump to return address
+				let str = format!(
+					"@LCL
+D=M
+@5
+A=D-A
+D=M
+@{0}
+M=D
+// push return value
+@SP
+A=M-1
+D=M
+@ARG
+A=M
+M=D
+// reposition stack pointer
+D=A+1
+@SP
+M=D
+// restore segment address
+@LCL
+A=M-1
+D=M
+@THAT
+M=D
+@LCL
+A=M-1
+A=A-1
+D=M
+@THIS
+M=D
+@LCL
+D=M
+@3
+A=D-A
+D=M
+@ARG
+M=D
+@LCL
+D=M
+@4
+A=D-A
+D=M
+@LCL
+M=D
+// goto return address
+@{0}
+A=M;JMP
+",
+					return_address
+				);
+				Ok(str)
+			}
+			_other => Err(format!("Unsupported Function command: {:?}", _other)),
+		}
 	}
 }
 
@@ -243,7 +332,7 @@ M=M+1
 ",
 						self.index
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::Local => {
 					// push value from local segment to global stack
@@ -261,7 +350,7 @@ M=M+1
 ",
 						self.index
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::Argument => {
 					// push value from argument segment to global stack
@@ -279,7 +368,7 @@ M=M+1
 ",
 						self.index
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::This => {
 					// push value from this segment to global stack
@@ -297,7 +386,7 @@ M=M+1
 ",
 						self.index
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::That => {
 					// push value from that segment to global stack
@@ -315,7 +404,7 @@ M=M+1
 ",
 						self.index
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::Temp => {
 					// push value from temp segment to global stack
@@ -333,7 +422,7 @@ M=M+1
 ",
 						self.index
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::Pointer => {
 					// push value from pointer segment to global stack
@@ -351,7 +440,7 @@ M=M+1
 ",
 						self.index
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::Static => {
 					// push value from static segment to global stack
@@ -366,7 +455,7 @@ M=M+1
 ",
 						static_symbol
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 			},
 			CommandType::Pop => match self.segment {
@@ -388,7 +477,7 @@ M=D
 ",
 						self.index, tmp_symbol
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::Argument => {
 					// move value from global stack to argument segment
@@ -408,7 +497,7 @@ M=D
 ",
 						self.index, tmp_symbol
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::This => {
 					// move value from global stack to this segment
@@ -428,7 +517,7 @@ M=D
 ",
 						self.index, tmp_symbol
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::That => {
 					// move value from global stack to that segment
@@ -448,7 +537,7 @@ M=D
 ",
 						self.index, tmp_symbol
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::Temp => {
 					// move value from global stack to temp segment (R5 to R12)
@@ -468,7 +557,7 @@ M=D
 ",
 						self.index, tmp_symbol
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::Pointer => {
 					// move value from global stack to pointer segment (R3 to R4)
@@ -488,7 +577,7 @@ M=D
 ",
 						self.index, tmp_symbol
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				SegmentType::Static => {
 					// move value from global stack to static segment (variable)
@@ -501,7 +590,7 @@ M=D
 ",
 						static_symbol
 					);
-					Ok(str.to_string())
+					Ok(str)
 				}
 				_other => Err(format!("Unsupported memory segment for Pop: {:?}", _other)),
 			},
