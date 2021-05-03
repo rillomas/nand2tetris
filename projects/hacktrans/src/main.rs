@@ -17,7 +17,7 @@ use command::NULL_ID;
 #[clap(setting = AppSettings::ColoredHelp)]
 struct Opts {
     #[clap(short)]
-    input_file: String,
+    input_file_or_dir: String,
 }
 const COMMENT_SYMBOL: &str = "//";
 const LOOP_STR: &'static str = "(LOOP_AT_END)
@@ -100,32 +100,57 @@ fn parse_line(line: &str, counter: &mut command::Counter) -> Option<Box<dyn Comm
 
 fn main() -> std::io::Result<()> {
     let opts = Opts::parse();
-    let input_file_path = Path::new(&opts.input_file);
-    let mut output_file_path = PathBuf::from(input_file_path);
-    output_file_path.set_extension("asm");
-    println!("input: {}", input_file_path.display());
+    let input_path = Path::new(&opts.input_file_or_dir);
+    println!("input: {}", input_path.display());
+    let mut output_file_path: PathBuf;
+    let mut readers = Vec::new();
+    if input_path.is_file() {
+        // load single file by single reader
+        let file = File::open(input_path)?;
+        readers.push(BufReader::new(file));
+        output_file_path = PathBuf::from(input_path);
+        output_file_path.set_extension("asm");
+    } else if input_path.is_dir() {
+        // load all files by multiple reader
+        for entry in std::fs::read_dir(input_path)? {
+            let path = entry.unwrap().path();
+            if path.extension().unwrap() == "vm" {
+                // only look at vm files
+                let file = File::open(path)?;
+                readers.push(BufReader::new(file));
+            }
+        }
+        // set output file name as "<input directory name>.asm"
+        output_file_path = PathBuf::from(input_path);
+        let dir_name = output_file_path.file_name().unwrap();
+        let output_file_name = PathBuf::from(format!("{}.{}", dir_name.to_str().unwrap(), "asm"));
+        output_file_path = output_file_path.join(output_file_name);
+    } else {
+        panic!("Unsupported path specified");
+    }
     println!("output: {}", output_file_path.display());
-    let file = File::open(input_file_path)?;
-    let reader = BufReader::new(file);
     let mut commands = vec![];
     let mut counter = command::Counter {
         eq: 0,
         lt: 0,
         gt: 0,
     };
-    for line in reader.lines() {
-        let line_text = line.unwrap();
-        let command = parse_line(&line_text, &mut counter);
-        if command.is_some() {
-            let cmd = command.unwrap();
-            println!("{:?}", cmd);
-            commands.push(cmd);
+    // Read all files to list of commands
+    for reader in readers {
+        for line in reader.lines() {
+            let line_text = line.unwrap();
+            let command = parse_line(&line_text, &mut counter);
+            if command.is_some() {
+                let cmd = command.unwrap();
+                // println!("{:?}", cmd);
+                commands.push(cmd);
+            }
         }
     }
 
     // convert VM commands to hack asm
     let mut out_file = File::create(output_file_path).unwrap();
-    let prefix = input_file_path
+    let prefix = input_path
         .file_stem()
         .unwrap()
         .to_os_string()
