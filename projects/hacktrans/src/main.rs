@@ -154,7 +154,6 @@ fn main() -> std::io::Result<()> {
             let command = parse_line(&line_text, &mut counter);
             if command.is_some() {
                 let cmd = command.unwrap();
-                println!("{:?}", cmd);
                 commands.push(cmd);
             }
         }
@@ -168,12 +167,11 @@ fn main() -> std::io::Result<()> {
         .to_os_string()
         .into_string()
         .unwrap();
-    let context = command::Context {
-        prefix: prefix,
-        function_name: String::from(""),
-        function_count: 0,
-    };
+    let mut context = command::Context::new(prefix);
     for cmd in commands {
+        context.update(&cmd);
+        println!("{:?}", cmd);
+        println!("{:?}", context);
         let _written = out_file
             .write(cmd.to_asm_text(&context).unwrap().as_bytes())
             .unwrap();

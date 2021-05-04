@@ -86,11 +86,11 @@ pub struct Function {
 #[derive(Debug)]
 pub struct Context {
 	/// prefix is used as a unique string for marking labels unique to the input file
-	pub prefix: String,
-	/// Current Function caller.
-	pub function_name: String,
-	/// Number of functions called within given function
-	pub function_count: u16,
+	prefix: String,
+	/// Current function name
+	func_name: String,
+	/// Number of functions called within function
+	func_call_count: u16,
 }
 
 pub const NULL_ID: CommandID = 0;
@@ -159,10 +159,38 @@ D=A+1
 M=D
 ";
 
+impl Context {
+	pub fn new(prefix: String) -> Context {
+		Context {
+			prefix: prefix,
+			func_name: String::from("root"),
+			func_call_count: 0,
+		}
+	}
+
+	/// Update context based on given current command
+	pub fn update(&mut self, command: &Box<dyn Command>) {
+		match command.command_type() {
+			CommandType::Function => {
+				// Update current function name and reset count
+				self.func_name = command.symbol().unwrap().clone();
+				self.func_call_count = 0;
+			}
+			CommandType::Call => {
+				// Update call count
+				self.func_call_count += 1;
+			}
+			_ => {}
+		}
+	}
+}
+
 /// General interface for all commands in VM
 pub trait Command: std::fmt::Debug {
 	/// Returns current command's command type
 	fn command_type(&self) -> CommandType;
+	/// Returns a symbol or function name for commands that owns it
+	fn symbol(&self) -> Option<&String>;
 	fn to_asm_text(&self, context: &Context) -> Result<String, String>;
 }
 
@@ -179,6 +207,10 @@ impl Command for ProgramFlow {
 	fn command_type(&self) -> CommandType {
 		self.command
 	}
+	fn symbol(&self) -> Option<&String> {
+		Some(&self.symbol)
+	}
+
 	fn to_asm_text(&self, context: &Context) -> Result<String, String> {
 		let target_label = format!("{}.{}", context.prefix, self.symbol);
 		match self.command {
@@ -227,6 +259,9 @@ impl Function {
 impl Command for Function {
 	fn command_type(&self) -> CommandType {
 		self.command
+	}
+	fn symbol(&self) -> Option<&String> {
+		self.name.as_ref()
 	}
 	fn to_asm_text(&self, context: &Context) -> Result<String, String> {
 		match self.command {
@@ -335,6 +370,11 @@ impl Command for MemoryAccess {
 	fn command_type(&self) -> CommandType {
 		self.command
 	}
+
+	fn symbol(&self) -> Option<&String> {
+		None
+	}
+
 	fn to_asm_text(&self, context: &Context) -> Result<String, String> {
 		let tmp_symbol = format!("{}.tmp", context.prefix);
 		let static_symbol = format!("{}.{}", context.prefix, self.index);
@@ -655,6 +695,10 @@ impl Arithmetic {
 impl Command for Arithmetic {
 	fn command_type(&self) -> CommandType {
 		self.command
+	}
+
+	fn symbol(&self) -> Option<&String> {
+		None
 	}
 
 	fn to_asm_text(&self, _context: &Context) -> Result<String, String> {
