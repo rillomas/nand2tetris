@@ -160,6 +160,79 @@ D=A+1
 M=D
 ";
 
+/// Generate asm for 'call f n'
+/// This is used in bootstrap code as well
+pub fn generate_call_asm(return_label: &str, arg_num: u16, func_name: &str) -> String {
+	// ARG address offset can be calculated from Stack pointer - (1 return address and 4 register states) + number of args
+	let offset_to_arg = 5 + arg_num;
+	let str = format!(
+		"@{0}
+D=A
+@SP
+A=M
+M=D
+D=A+1
+@SP
+M=D
+// Save all register state (LCL, ARG, THIS, THAT)
+@LCL
+D=M
+@SP
+A=M
+M=D
+D=A+1
+@SP
+M=D
+// Save ARG
+@ARG
+D=M
+@SP
+A=M
+M=D
+D=A+1
+@SP
+M=D
+// Save THIS
+@THIS
+D=M
+@SP
+A=M
+M=D
+D=A+1
+@SP
+M=D
+// Save THAT
+@THAT
+D=M
+@SP
+A=M
+M=D
+D=A+1
+@SP
+M=D
+// Reposition ARG
+@SP
+D=M
+@{1}
+D=D-A
+@ARG
+M=D
+// Reposition LCL
+@SP
+D=M
+@LCL
+M=D
+// Goto Function label
+@{2}
+0;JMP
+// Create return label
+({0})
+",
+		return_label, offset_to_arg, func_name
+	);
+	return str;
+}
+
 impl Context {
 	pub fn new(prefix: String) -> Context {
 		Context {
@@ -357,75 +430,9 @@ A=M;JMP
 				Ok(str)
 			}
 			CommandType::Call => {
-				let return_label = context.return_label();
-				// Offset to ARG point address from Stack pointer after pushing register states
-				let offset_to_arg = 5 + self.arg_or_var_num.unwrap();
-				// push return address
-				let str = format!(
-					"@{0}
-D=A
-@SP
-A=M
-M=D
-D=A+1
-@SP
-M=D
-// Save all register state (LCL, ARG, THIS, THAT)
-@LCL
-D=M
-@SP
-A=M
-M=D
-D=A+1
-@SP
-M=D
-// Save ARG
-@ARG
-D=M
-@SP
-A=M
-M=D
-D=A+1
-@SP
-M=D
-// Save THIS
-@THIS
-D=M
-@SP
-A=M
-M=D
-D=A+1
-@SP
-M=D
-// Save THAT
-@THAT
-D=M
-@SP
-A=M
-M=D
-D=A+1
-@SP
-M=D
-// Reposition ARG
-@SP
-D=M
-@{1}
-D=D-A
-@ARG
-M=D
-// Reposition LCL
-@SP
-D=M
-@LCL
-M=D
-// Goto Function label
-@{2}
-0;JMP
-// Create return label
-({0})
-",
-					return_label,
-					offset_to_arg,
+				let str = generate_call_asm(
+					&context.return_label(),
+					self.arg_or_var_num.unwrap(),
 					self.name.as_ref().unwrap(),
 				);
 				Ok(str)

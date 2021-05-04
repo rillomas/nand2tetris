@@ -20,14 +20,6 @@ struct Opts {
     input_file_or_dir: String,
 }
 const COMMENT_SYMBOL: &str = "//";
-/// Bootstrap asm code to set stackpointer to initial position and call Sys.init
-const BOOTSTRAP_ASM: &'static str = "@256
-D=A
-@SP
-M=D
-@Sys.init
-0;JMP
-";
 
 fn remove_comment(line: &str) -> &str {
     match line.find(COMMENT_SYMBOL) {
@@ -164,8 +156,20 @@ fn main() -> std::io::Result<()> {
         .to_os_string()
         .into_string()
         .unwrap();
-    let mut context = command::Context::new(prefix);
-    let _written = out_file.write(BOOTSTRAP_ASM.as_bytes());
+    let mut context = command::Context::new(prefix.clone());
+    // Bootstrap asm code to set stackpointer to initial position and call Sys.init
+    let return_label = format!("{}$ret.1", prefix);
+
+    let call = command::generate_call_asm(&return_label, 0, "Sys.init");
+    let bootstrap = format!(
+        "@256
+D=A
+@SP
+M=D
+{}",
+        call
+    );
+    let _written = out_file.write(bootstrap.as_bytes());
     for cmd in commands {
         context.update(&cmd);
         // println!("{:?}", cmd);
