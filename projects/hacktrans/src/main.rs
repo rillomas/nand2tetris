@@ -20,16 +20,13 @@ struct Opts {
     input_file_or_dir: String,
 }
 const COMMENT_SYMBOL: &str = "//";
-const LOOP_AT_END_ASM: &'static str = "(LOOP_AT_END)
-@LOOP_AT_END
-0;JMP
-";
-
-// Set stackpointer to initial position and call Sys.init
+/// Bootstrap asm code to set stackpointer to initial position and call Sys.init
 const BOOTSTRAP_ASM: &'static str = "@256
 D=A
 @SP
 M=D
+@Sys.init
+0;JMP
 ";
 
 fn remove_comment(line: &str) -> &str {
@@ -168,15 +165,14 @@ fn main() -> std::io::Result<()> {
         .into_string()
         .unwrap();
     let mut context = command::Context::new(prefix);
+    let _written = out_file.write(BOOTSTRAP_ASM.as_bytes());
     for cmd in commands {
         context.update(&cmd);
-        println!("{:?}", cmd);
-        println!("{:?}", context);
+        // println!("{:?}", cmd);
+        // println!("{:?}", context);
         let _written = out_file
             .write(cmd.to_asm_text(&context).unwrap().as_bytes())
             .unwrap();
     }
-    // Add loop at the end to avoid code injection
-    let _written = out_file.write(LOOP_AT_END_ASM.as_bytes());
     Ok(())
 }

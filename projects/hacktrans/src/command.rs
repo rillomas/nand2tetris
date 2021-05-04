@@ -78,7 +78,8 @@ pub struct ProgramFlow {
 pub struct Function {
 	command: CommandType,
 	name: Option<String>,
-	argument_num: Option<u16>,
+	/// Number of arguments for call command, number of local variables for function command, None for return command
+	arg_or_var_num: Option<u16>,
 }
 
 /// Context of the current function calls.
@@ -183,6 +184,11 @@ impl Context {
 			_ => {}
 		}
 	}
+
+	/// Generate return label name based on current state
+	fn return_label(&self) -> String {
+		format!("{}$ret.{}", self.func_name, self.func_call_count)
+	}
 }
 
 /// General interface for all commands in VM
@@ -247,11 +253,11 @@ D;JNE
 }
 
 impl Function {
-	pub fn new(command: CommandType, name: Option<String>, arg_num: Option<u16>) -> Function {
+	pub fn new(command: CommandType, name: Option<String>, arg_or_var_num: Option<u16>) -> Function {
 		Function {
 			command: command,
 			name: name,
-			argument_num: arg_num,
+			arg_or_var_num: arg_or_var_num,
 		}
 	}
 }
@@ -275,7 +281,7 @@ A=M
 					self.name.as_ref().unwrap()
 				);
 				// initialize local variables to zero
-				for _ in 0..self.argument_num.unwrap() {
+				for _ in 0..self.arg_or_var_num.unwrap() {
 					str.push_str(
 						"M=0
 A=A+1
@@ -351,14 +357,77 @@ A=M;JMP
 				Ok(str)
 			}
 			CommandType::Call => {
-				let return_label = format!("");
+				let return_label = context.return_label();
+				// Offset to ARG point address from Stack pointer after pushing register states
+				let offset_to_arg = 5 + self.arg_or_var_num.unwrap();
 				// push return address
-				// Save all register state (LCL, ARG, THIS, THAT)
-				// Reposition ARG
-				// Reposition SP
-				// Goto Function label
-				// Create return label
-				let str = format!("",);
+				let str = format!(
+					"@{0}
+D=A
+@SP
+A=M
+M=D
+D=A+1
+@SP
+M=D
+// Save all register state (LCL, ARG, THIS, THAT)
+@LCL
+D=M
+@SP
+A=M
+M=D
+D=A+1
+@SP
+M=D
+// Save ARG
+@ARG
+D=M
+@SP
+A=M
+M=D
+D=A+1
+@SP
+M=D
+// Save THIS
+@THIS
+D=M
+@SP
+A=M
+M=D
+D=A+1
+@SP
+M=D
+// Save THAT
+@THAT
+D=M
+@SP
+A=M
+M=D
+D=A+1
+@SP
+M=D
+// Reposition ARG
+@SP
+D=M
+@{1}
+D=D-A
+@ARG
+M=D
+// Reposition LCL
+@SP
+D=M
+@LCL
+M=D
+// Goto Function label
+@{2}
+0;JMP
+// Create return label
+({0})
+",
+					return_label,
+					offset_to_arg,
+					self.name.as_ref().unwrap(),
+				);
 				Ok(str)
 			}
 			_other => Err(format!("Unsupported Function command: {:?}", _other)),
