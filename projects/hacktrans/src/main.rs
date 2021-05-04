@@ -20,9 +20,16 @@ struct Opts {
     input_file_or_dir: String,
 }
 const COMMENT_SYMBOL: &str = "//";
-const LOOP_STR: &'static str = "(LOOP_AT_END)
+const LOOP_AT_END_ASM: &'static str = "(LOOP_AT_END)
 @LOOP_AT_END
 0;JMP
+";
+
+// Set stackpointer to initial position and call Sys.init
+const BOOTSTRAP_ASM: &'static str = "@256
+D=A
+@SP
+M=D
 ";
 
 fn remove_comment(line: &str) -> &str {
@@ -94,6 +101,11 @@ fn parse_line(line: &str, counter: &mut command::Counter) -> Option<Box<dyn Comm
             Some(str::parse::<u16>(itr.next().unwrap()).unwrap()),
         ))),
         "return" => Some(Box::new(Function::new(CommandType::Return, None, None))),
+        "call" => Some(Box::new(Function::new(
+            CommandType::Call,
+            Some(itr.next().unwrap().to_string()),
+            Some(str::parse::<u16>(itr.next().unwrap()).unwrap()),
+        ))),
         _ => None,
     }
 }
@@ -142,7 +154,7 @@ fn main() -> std::io::Result<()> {
             let command = parse_line(&line_text, &mut counter);
             if command.is_some() {
                 let cmd = command.unwrap();
-                // println!("{:?}", cmd);
+                println!("{:?}", cmd);
                 commands.push(cmd);
             }
         }
@@ -156,12 +168,17 @@ fn main() -> std::io::Result<()> {
         .to_os_string()
         .into_string()
         .unwrap();
+    let context = command::Context {
+        prefix: prefix,
+        function_name: String::from(""),
+        function_count: 0,
+    };
     for cmd in commands {
         let _written = out_file
-            .write(cmd.to_asm_text(&prefix).unwrap().as_bytes())
+            .write(cmd.to_asm_text(&context).unwrap().as_bytes())
             .unwrap();
     }
     // Add loop at the end to avoid code injection
-    let _written = out_file.write(LOOP_STR.as_bytes());
+    let _written = out_file.write(LOOP_AT_END_ASM.as_bytes());
     Ok(())
 }

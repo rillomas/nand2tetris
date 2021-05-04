@@ -26,7 +26,7 @@ pub enum CommandType {
 	If,
 	Function,
 	Return,
-	// Call,
+	Call,
 }
 
 /// Type of segment for VM memory access (push, pop)
@@ -81,9 +81,21 @@ pub struct Function {
 	argument_num: Option<u16>,
 }
 
+/// Context of the current function calls.
+/// Needed to generate function call/return labels
+#[derive(Debug)]
+pub struct Context {
+	/// prefix is used as a unique string for marking labels unique to the input file
+	pub prefix: String,
+	/// Current Function caller.
+	pub function_name: String,
+	/// Number of functions called within given function
+	pub function_count: u16,
+}
+
 pub const NULL_ID: CommandID = 0;
 
-const ADD_STR: &'static str = "@SP
+const ADD_ASM: &'static str = "@SP
 A=M
 A=A-1
 D=M
@@ -94,7 +106,7 @@ D=A+1
 M=D
 ";
 
-const SUB_STR: &'static str = "@SP
+const SUB_ASM: &'static str = "@SP
 A=M
 A=A-1
 D=M
@@ -105,7 +117,7 @@ D=A+1
 M=D
 ";
 
-const AND_STR: &'static str = "@SP
+const AND_ASM: &'static str = "@SP
 A=M
 A=A-1
 D=M
@@ -116,7 +128,7 @@ D=A+1
 M=D
 ";
 
-const OR_STR: &'static str = "@SP
+const OR_ASM: &'static str = "@SP
 A=M
 A=A-1
 D=M
@@ -127,7 +139,7 @@ D=A+1
 M=D
 ";
 
-const NEG_STR: &'static str = "@SP
+const NEG_ASM: &'static str = "@SP
 A=M
 A=A-1
 D=M
@@ -137,7 +149,7 @@ D=A+1
 M=D
 ";
 
-const NOT_STR: &'static str = "@SP
+const NOT_ASM: &'static str = "@SP
 A=M
 A=A-1
 D=M
@@ -151,8 +163,7 @@ M=D
 pub trait Command: std::fmt::Debug {
 	/// Returns current command's command type
 	fn command_type(&self) -> CommandType;
-	/// prefix is used as a unique string for marking labels unique to the input file
-	fn to_asm_text(&self, prefix: &String) -> Result<String, String>;
+	fn to_asm_text(&self, context: &Context) -> Result<String, String>;
 }
 
 impl ProgramFlow {
@@ -168,8 +179,8 @@ impl Command for ProgramFlow {
 	fn command_type(&self) -> CommandType {
 		self.command
 	}
-	fn to_asm_text(&self, prefix: &String) -> Result<String, String> {
-		let target_label = format!("{}.{}", prefix, self.symbol);
+	fn to_asm_text(&self, context: &Context) -> Result<String, String> {
+		let target_label = format!("{}.{}", context.prefix, self.symbol);
 		match self.command {
 			CommandType::Label => {
 				let str = format!("({})\n", target_label);
@@ -217,7 +228,7 @@ impl Command for Function {
 	fn command_type(&self) -> CommandType {
 		self.command
 	}
-	fn to_asm_text(&self, prefix: &String) -> Result<String, String> {
+	fn to_asm_text(&self, context: &Context) -> Result<String, String> {
 		match self.command {
 			CommandType::Function => {
 				// set label and get ready for local variable initialization
@@ -246,7 +257,7 @@ M=D
 				Ok(str)
 			}
 			CommandType::Return => {
-				let return_address = format!("{}.ret", prefix);
+				let return_address = format!("{}.ret", context.prefix);
 				// store return address,
 				// push return value,
 				// reposition stack pointer
@@ -260,7 +271,6 @@ A=D-A
 D=M
 @{0}
 M=D
-// push return value
 @SP
 A=M-1
 D=M
@@ -305,6 +315,17 @@ A=M;JMP
 				);
 				Ok(str)
 			}
+			CommandType::Call => {
+				let return_label = format!("");
+				// push return address
+				// Save all register state (LCL, ARG, THIS, THAT)
+				// Reposition ARG
+				// Reposition SP
+				// Goto Function label
+				// Create return label
+				let str = format!("",);
+				Ok(str)
+			}
 			_other => Err(format!("Unsupported Function command: {:?}", _other)),
 		}
 	}
@@ -314,9 +335,9 @@ impl Command for MemoryAccess {
 	fn command_type(&self) -> CommandType {
 		self.command
 	}
-	fn to_asm_text(&self, prefix: &String) -> Result<String, String> {
-		let tmp_symbol = format!("{}.tmp", prefix);
-		let static_symbol = format!("{}.{}", prefix, self.index);
+	fn to_asm_text(&self, context: &Context) -> Result<String, String> {
+		let tmp_symbol = format!("{}.tmp", context.prefix);
+		let static_symbol = format!("{}.{}", context.prefix, self.index);
 		match self.command {
 			CommandType::Push => match self.segment {
 				SegmentType::Constant => {
@@ -636,14 +657,14 @@ impl Command for Arithmetic {
 		self.command
 	}
 
-	fn to_asm_text(&self, _prefix: &String) -> Result<String, String> {
+	fn to_asm_text(&self, _context: &Context) -> Result<String, String> {
 		match self.arithmetic {
-			ArithmeticType::Add => Ok(ADD_STR.to_string()),
-			ArithmeticType::Sub => Ok(SUB_STR.to_string()),
-			ArithmeticType::And => Ok(AND_STR.to_string()),
-			ArithmeticType::Or => Ok(OR_STR.to_string()),
-			ArithmeticType::Neg => Ok(NEG_STR.to_string()),
-			ArithmeticType::Not => Ok(NOT_STR.to_string()),
+			ArithmeticType::Add => Ok(ADD_ASM.to_string()),
+			ArithmeticType::Sub => Ok(SUB_ASM.to_string()),
+			ArithmeticType::And => Ok(AND_ASM.to_string()),
+			ArithmeticType::Or => Ok(OR_ASM.to_string()),
+			ArithmeticType::Neg => Ok(NEG_ASM.to_string()),
+			ArithmeticType::Not => Ok(NOT_ASM.to_string()),
 			ArithmeticType::Eq => Ok(format!(
                 // use the ID to create a unique jump label for each command
                 "@SP
