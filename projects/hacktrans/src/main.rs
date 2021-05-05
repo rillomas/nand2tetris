@@ -21,6 +21,11 @@ struct Opts {
 }
 const COMMENT_SYMBOL: &str = "//";
 
+struct Reader {
+    reader: BufReader<std::fs::File>,
+    origin_name: String,
+}
+
 fn remove_comment(line: &str) -> &str {
     match line.find(COMMENT_SYMBOL) {
         Some(pos) => {
@@ -33,7 +38,11 @@ fn remove_comment(line: &str) -> &str {
     }
 }
 
-fn parse_line(line: &str, counter: &mut command::Counter) -> Option<Box<dyn Command>> {
+fn parse_line(
+    line: &str,
+    origin_name: &str,
+    counter: &mut command::Counter,
+) -> Option<Box<dyn Command>> {
     let mut code = remove_comment(line);
     code = code.trim();
     if code.is_empty() {
@@ -46,11 +55,13 @@ fn parse_line(line: &str, counter: &mut command::Counter) -> Option<Box<dyn Comm
     match command {
         "push" => Some(Box::new(command::MemoryAccess::new(
             CommandType::Push,
+            origin_name,
             itr.next().unwrap(),
             itr.next().unwrap(),
         ))),
         "pop" => Some(Box::new(MemoryAccess::new(
             CommandType::Pop,
+            origin_name,
             itr.next().unwrap(),
             itr.next().unwrap(),
         ))),
@@ -108,7 +119,16 @@ fn main() -> std::io::Result<()> {
     if input_path.is_file() {
         // load single file by single reader
         let file = File::open(input_path)?;
-        readers.push(BufReader::new(file));
+        let reader = Reader {
+            reader: BufReader::new(file),
+            origin_name: input_path
+                .file_stem()
+                .unwrap()
+                .to_os_string()
+                .into_string()
+                .unwrap(),
+        };
+        readers.push(reader);
         output_file_path = PathBuf::from(input_path);
         output_file_path.set_extension("asm");
     } else if input_path.is_dir() {
@@ -117,8 +137,18 @@ fn main() -> std::io::Result<()> {
             let path = entry.unwrap().path();
             if path.extension().unwrap() == "vm" {
                 // only look at vm files
+                let origin_name = path
+                    .file_stem()
+                    .unwrap()
+                    .to_os_string()
+                    .into_string()
+                    .unwrap();
                 let file = File::open(path)?;
-                readers.push(BufReader::new(file));
+                let reader = Reader {
+                    reader: BufReader::new(file),
+                    origin_name: origin_name,
+                };
+                readers.push(reader);
             }
         }
         // set output file name as "<input directory name>.asm"
@@ -138,9 +168,9 @@ fn main() -> std::io::Result<()> {
     };
     // Read all files to list of commands
     for reader in readers {
-        for line in reader.lines() {
+        for line in reader.reader.lines() {
             let line_text = line.unwrap();
-            let command = parse_line(&line_text, &mut counter);
+            let command = parse_line(&line_text, &reader.origin_name, &mut counter);
             if command.is_some() {
                 let cmd = command.unwrap();
                 commands.push(cmd);

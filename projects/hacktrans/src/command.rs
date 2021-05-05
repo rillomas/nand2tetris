@@ -64,6 +64,9 @@ pub struct Counter {
 #[derive(Debug)]
 pub struct MemoryAccess {
 	command: CommandType,
+	/// The origin input file name (without the .vm extension) of the command
+	/// This is used in static segment labels
+	origin_name: String,
 	segment: SegmentType,
 	index: MemoryIndex,
 }
@@ -86,7 +89,7 @@ pub struct Function {
 /// Needed to generate function call/return labels
 #[derive(Debug)]
 pub struct Context {
-	/// prefix is used as a unique string for marking labels unique to the input file
+	/// prefix is used as a unique string for marking labels unique to the output file
 	prefix: String,
 	/// Current function name
 	func_name: String,
@@ -268,7 +271,7 @@ impl Context {
 pub trait Command: std::fmt::Debug {
 	/// Returns current command's command type
 	fn command_type(&self) -> CommandType;
-	/// Returns a symbol or function name for commands that owns it
+	/// Returns a symbol or function name for commands that uses it
 	fn symbol(&self) -> Option<&String>;
 	fn to_asm_text(&self, context: &Context) -> Result<String, String>;
 }
@@ -442,6 +445,29 @@ A=M;JMP
 	}
 }
 
+impl MemoryAccess {
+	pub fn new(command: CommandType, origin_name: &str, segment: &str, index: &str) -> MemoryAccess {
+		let seg = match segment {
+			"argument" => SegmentType::Argument,
+			"local" => SegmentType::Local,
+			"static" => SegmentType::Static,
+			"constant" => SegmentType::Constant,
+			"this" => SegmentType::This,
+			"that" => SegmentType::That,
+			"temp" => SegmentType::Temp,
+			"pointer" => SegmentType::Pointer,
+			_other => panic!("Unknown segment specified: {:?}", _other),
+		};
+		let idx = str::parse::<MemoryIndex>(index);
+		MemoryAccess {
+			command: command,
+			origin_name: origin_name.to_string(),
+			segment: seg,
+			index: idx.unwrap(),
+		}
+	}
+}
+
 impl Command for MemoryAccess {
 	fn command_type(&self) -> CommandType {
 		self.command
@@ -453,7 +479,7 @@ impl Command for MemoryAccess {
 
 	fn to_asm_text(&self, context: &Context) -> Result<String, String> {
 		let tmp_symbol = format!("{}.tmp", context.prefix);
-		let static_symbol = format!("{}.{}", context.prefix, self.index);
+		let static_symbol = format!("{}.{}", self.origin_name, self.index);
 		match self.command {
 			CommandType::Push => match self.segment {
 				SegmentType::Constant => {
@@ -732,28 +758,6 @@ M=D
 				_other => Err(format!("Unsupported memory segment for Pop: {:?}", _other)),
 			},
 			_other => Err(format!("Unsupported MemoryAccessCommand: {:?}", _other)),
-		}
-	}
-}
-
-impl MemoryAccess {
-	pub fn new(command: CommandType, segment: &str, index: &str) -> MemoryAccess {
-		let seg = match segment {
-			"argument" => SegmentType::Argument,
-			"local" => SegmentType::Local,
-			"static" => SegmentType::Static,
-			"constant" => SegmentType::Constant,
-			"this" => SegmentType::This,
-			"that" => SegmentType::That,
-			"temp" => SegmentType::Temp,
-			"pointer" => SegmentType::Pointer,
-			_other => panic!("Unknown segment specified: {:?}", _other),
-		};
-		let idx = str::parse::<MemoryIndex>(index);
-		MemoryAccess {
-			command: command,
-			segment: seg,
-			index: idx.unwrap(),
 		}
 	}
 }
