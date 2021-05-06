@@ -1,0 +1,17 @@
+class Player {
+	field int x, y; // coordinate of player
+	field int size; // length of this , in pixels
+
+	constructor Player new(int Ax, int Ay, int Asize) {
+		let x = Ax;
+		let y = Ay;
+		let size = Asize;
+		return this;
+	}
+
+	method void draw() {
+		do Screen.setColor(true);
+		do Screen.drawRectangle(x, y, x + size, y + size);
+		return;
+	}
+}
