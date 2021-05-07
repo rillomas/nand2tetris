@@ -9,6 +9,51 @@ class Player {
 		return this;
 	}
 
+	method void move(int direction) {
+		var int delta;
+		let delta = 2;
+		if (direction = 1) {
+			// up
+			let y = y-delta;
+		}
+		if (direction = 2) {
+			// down
+			let y = y+delta;
+		}
+		if (direction = 3) {
+			// left
+			let x = x-delta;
+		}
+		if (direction = 4) {
+			// right
+			let x = x+delta;
+		}
+		return;
+	}
+
+	method bool outOfBounds() {
+		return (x<0) | (y<0) | ((x+size) > 511) | ((y+size) > 255);
+	}
+
+	method void fixPosition() {
+		var int diff;
+		if (x < 0) {
+			let x = 0;
+		}
+		if (y < 0) {
+			let y = 0;
+		}
+		if ((x+size) > 511) {
+			let diff = (x+size) - 511;
+			let x = x-diff;
+		}
+		if ((y+size) > 255) {
+			let diff = (y+size) - 255;
+			let y = y-diff;
+		}
+		return;
+	}
+
 	method void draw() {
 		do Screen.setColor(true);
 		do Screen.drawRectangle(x, y, x + size, y + size);
