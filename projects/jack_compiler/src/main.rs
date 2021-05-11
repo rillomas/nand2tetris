@@ -2,6 +2,7 @@ use clap::{AppSettings, Clap};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+mod token;
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Masato Nakasaka <rillomas@gmail.com>")]
@@ -63,10 +64,13 @@ fn main() -> std::io::Result<()> {
 
     // apply tokenization and parsing for all jack files
     for reader in readers {
+        let mut token_list = Vec::new();
         for line in reader.reader.lines() {
             let line_text = line.unwrap();
-            println!("{}", line_text);
+            let mut tokens = token::parse_line(&line_text);
+            token_list.append(&mut tokens);
         }
+        println!("{:?}", token_list);
     }
 
     Ok(())
