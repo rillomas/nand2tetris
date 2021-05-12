@@ -65,9 +65,10 @@ fn main() -> std::io::Result<()> {
     // apply tokenization and parsing for all jack files
     for reader in readers {
         let mut token_list = Vec::new();
+        let mut context = token::FileContext::new();
         for line in reader.reader.lines() {
             let line_text = line.unwrap();
-            let mut tokens = token::parse_line(&line_text);
+            let mut tokens = token::parse_line(&mut context, &line_text);
             token_list.append(&mut tokens);
         }
         println!("{:?}", token_list);
