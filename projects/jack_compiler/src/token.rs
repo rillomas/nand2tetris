@@ -48,14 +48,48 @@ pub trait Token: std::fmt::Debug {
 	fn r#type(&self) -> TokenType;
 }
 
+#[derive(Debug)]
 struct Symbol {
-	r#type: TokenType,
 	symbol: char,
 }
 
+impl Token for Symbol {
+	fn r#type(&self) -> TokenType {
+		TokenType::Symbol
+	}
+}
+
+#[derive(Debug)]
 struct Identifier {
-	r#type: TokenType,
-	symbol: char,
+	sequence: String,
+}
+
+impl Token for Identifier {
+	fn r#type(&self) -> TokenType {
+		TokenType::Identifier
+	}
+}
+
+#[derive(Debug)]
+struct IntegerConstant {
+	value: u16,
+}
+
+impl Token for IntegerConstant {
+	fn r#type(&self) -> TokenType {
+		TokenType::IntegerConst
+	}
+}
+
+#[derive(Debug)]
+struct StringConstant {
+	sequence: String,
+}
+
+impl Token for StringConstant {
+	fn r#type(&self) -> TokenType {
+		TokenType::StringConst
+	}
 }
 
 /// Current context within a line
@@ -68,6 +102,8 @@ pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> 
 	let line_context = LineContext {};
 	while finished_parsing {
 		// Try to obtain next token by reading the next character
+		// If we can determine which token we got we decide it here and jump to the end of token
+		// If not we look to the next character and repeat
 
 		if in_comment {
 			// Since we are in a multi line comment we just look for the closing comment symbol.
