@@ -107,14 +107,19 @@ struct CommentState {
 /// Current context within a line
 struct LineContext {
 	comment: CommentState,
+	/// True if current char is inside a string constant
+	in_string: bool,
+	/// List of chars that are not yet finished as a token
+	char_stash: Vec<char>,
 }
 
 const ASTERISK: char = '*';
 const SLASH: char = '/';
 
+#[derive(Debug)]
 enum LineParseResult {
-	/// End parsing line and go to next line
-	Break,
+	/// Got a line comment
+	LineComment,
 	/// Continue parsing line
 	Continue,
 }
@@ -148,7 +153,7 @@ fn update_comment_state(state: &mut CommentState, c: char) -> LineParseResult {
 			SLASH => {
 				if state.next_maybe_line_begin {
 					// line comment has begun so we skip the rest
-					return LineParseResult::Break;
+					return LineParseResult::LineComment;
 				} else {
 					// Region comment or line comment may begin on next char
 					state.next_maybe_line_begin = true;
@@ -174,7 +179,7 @@ fn update_comment_state(state: &mut CommentState, c: char) -> LineParseResult {
 }
 
 pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> {
-	let out: Vec<Box<dyn Token>> = Vec::new();
+	let mut token_list: Vec<Box<dyn Token>> = Vec::new();
 	let mut ctx = LineContext {
 		comment: CommentState {
 			in_region: context.in_comment,
@@ -182,27 +187,60 @@ pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> 
 			next_maybe_region_begin: false,
 			next_maybe_region_end: false,
 		},
+		in_string: false,
+		char_stash: Vec::new(),
 	};
+	let symbol_list = vec![
+		'}', '{', ')', '(', '[', ']', '.', ',', ';', '+', '-', '*', SLASH, '&', '|', '<', '>', '=', '~',
+	];
 	// iterate over all character
 	for c in line.chars() {
 		let ret = update_comment_state(&mut ctx.comment, c);
-		println!("{} {:?}", c, ctx.comment);
-		if matches!(ret, LineParseResult::Break) {
+		if matches!(ret, LineParseResult::LineComment) {
+			// We encountered a line comment symbol so we break here and go to next line.
+			// left over token should be the previous '/' symbol so we just drop it and go on
 			break;
 		}
+		if ctx.comment.in_region {
+			// We are in region comment so we go to next char
+			// If we have any previous char it should be a '/' symbol so we drop it
+			ctx.char_stash.clear();
+			continue;
+		}
+		// println!("{}", c);
+		if c.is_whitespace() {
+			// look at stash and if we have anything push it as token
+		} else if c == '"' {
+			if ctx.in_string {
+				// We are now at end of string
+				// Merge with stashed characters and push to token list
+				ctx.char_stash.push(c);
+				let str: String = ctx.char_stash.iter().collect();
+				token_list.push(Box::new(StringConstant { sequence: str }));
+				ctx.char_stash.clear();
+			} else {
+				// We are at start of string
+				ctx.in_string = true;
+			}
+		} else if symbol_list.contains(&c) {
+			// Got a symbol
+			match c {
+				SLASH => {
+					// May be a div symbol or comment symbol.
+					// We stash the character and go next
+					ctx.char_stash.push(c);
+					continue;
+				}
+				_ => {
+					// If we already have anything in the stash we push it
+					// All other symbols can be simply added as token
+					token_list.push(Box::new(Symbol { symbol: c }));
+				}
+			}
+		}
 		// If it is an alphabet we read until next symbol (except underscore) or space
-		// If it is a '/' we check the next symbol to see if it is a comment symbol
-		// If it is a valid symbol
-
-		// if ctx.in_comment {
-		// 	// Since we are in a multi line comment we just look for the closing comment symbol.
-		// 	// If we cannot find it we don't add any tokens.
-		// 	// If we find it we remove all the comment part and process the rest
-		// } else {
-		// 	// We look for
-		// }
 	}
 	// update context for the next line
 	context.in_comment = ctx.comment.in_region;
-	out
+	token_list
 }
