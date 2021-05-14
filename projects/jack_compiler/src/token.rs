@@ -49,6 +49,17 @@ pub trait Token: std::fmt::Debug {
 }
 
 #[derive(Debug)]
+struct Keyword {
+	sequence: String,
+}
+
+impl Token for Keyword {
+	fn r#type(&self) -> TokenType {
+		TokenType::Keyword
+	}
+}
+
+#[derive(Debug)]
 struct Symbol {
 	symbol: char,
 }
@@ -115,6 +126,33 @@ struct LineContext {
 
 const ASTERISK: char = '*';
 const SLASH: char = '/';
+const DOUBLE_QUOTE: char = '"';
+const SYMBOL_LIST: [char; 19] = [
+	'}', '{', ')', '(', '[', ']', '.', ',', ';', '+', '-', '*', SLASH, '&', '|', '<', '>', '=', '~',
+];
+const KEYWORD_LIST: [&str; 21] = [
+	"class",
+	"constructor",
+	"function",
+	"method",
+	"field",
+	"static",
+	"var",
+	"int",
+	"char",
+	"boolean",
+	"void",
+	"true",
+	"false",
+	"null",
+	"this",
+	"let",
+	"do",
+	"if",
+	"else",
+	"while",
+	"return",
+];
 
 #[derive(Debug)]
 enum LineParseResult {
@@ -178,6 +216,30 @@ fn update_comment_state(state: &mut CommentState, c: char) -> LineParseResult {
 	LineParseResult::Continue
 }
 
+/// Create token by analyzing the content
+fn extract_token(stash: &Vec<char>) -> Result<Box<dyn Token>, &str> {
+	let len = stash.len();
+	if len == 0 {
+		return Err("Empty stash given");
+	}
+	let word: String = stash.iter().cloned().collect();
+
+	if len == 1 && SYMBOL_LIST.contains(&stash[0]) {
+		Ok(Box::new(Symbol { symbol: stash[0] }))
+	} else if stash[0].is_ascii_digit() {
+		// If the first symbol is an integer it is an integer const
+		Ok(Box::new(IntegerConstant {
+			value: str::parse::<u16>(&word.as_str()).unwrap(),
+		}))
+	} else if KEYWORD_LIST.contains(&word.as_str()) {
+		// If the word matches keyword list we return keyword
+		Ok(Box::new(Keyword { sequence: word }))
+	} else {
+		// all other cases are identifiers
+		Ok(Box::new(Identifier { sequence: word }))
+	}
+}
+
 pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> {
 	let mut token_list: Vec<Box<dyn Token>> = Vec::new();
 	let mut ctx = LineContext {
@@ -190,55 +252,68 @@ pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> 
 		in_string: false,
 		char_stash: Vec::new(),
 	};
-	let symbol_list = vec![
-		'}', '{', ')', '(', '[', ']', '.', ',', ';', '+', '-', '*', SLASH, '&', '|', '<', '>', '=', '~',
-	];
 	// iterate over all character
 	for c in line.chars() {
-		let ret = update_comment_state(&mut ctx.comment, c);
-		if matches!(ret, LineParseResult::LineComment) {
-			// We encountered a line comment symbol so we break here and go to next line.
-			// left over token should be the previous '/' symbol so we just drop it and go on
-			break;
-		}
-		if ctx.comment.in_region {
-			// We are in region comment so we go to next char
-			// If we have any previous char it should be a '/' symbol so we drop it
-			ctx.char_stash.clear();
-			continue;
-		}
 		// println!("{}", c);
-		if c.is_whitespace() {
-			// look at stash and if we have anything push it as token
-		} else if c == '"' {
-			if ctx.in_string {
+		if ctx.in_string {
+			// We are currently in a string so we stash all chars unless we get the end quote
+			if c == DOUBLE_QUOTE {
 				// We are now at end of string
-				// Merge with stashed characters and push to token list
-				ctx.char_stash.push(c);
-				let str: String = ctx.char_stash.iter().collect();
+				// Get all stashed characters and push to token list
+				let str = ctx.char_stash.iter().collect();
 				token_list.push(Box::new(StringConstant { sequence: str }));
 				ctx.char_stash.clear();
+				ctx.in_string = false;
 			} else {
+				ctx.char_stash.push(c);
+			}
+		} else {
+			// not in string
+			let ret = update_comment_state(&mut ctx.comment, c);
+			if matches!(ret, LineParseResult::LineComment) {
+				// We encountered a line comment symbol so we break here and go to next line.
+				// left over token should be the previous '/' symbol so we just drop it and go on
+				break;
+			}
+			if ctx.comment.in_region {
+				// We are in region comment so we go to next char
+				// If we have any previous char it should be a '/' symbol so we drop it
+				ctx.char_stash.clear();
+				continue;
+			}
+			if c.is_whitespace() {
+				// look at stash and if we have anything push it as token
+				if !ctx.char_stash.is_empty() {
+					token_list.push(extract_token(&ctx.char_stash).unwrap());
+					ctx.char_stash.clear();
+				}
+			} else if c == DOUBLE_QUOTE {
 				// We are at start of string
 				ctx.in_string = true;
-			}
-		} else if symbol_list.contains(&c) {
-			// Got a symbol
-			match c {
-				SLASH => {
-					// May be a div symbol or comment symbol.
-					// We stash the character and go next
-					ctx.char_stash.push(c);
-					continue;
+			} else if SYMBOL_LIST.contains(&c) {
+				// Got a symbol
+				match c {
+					SLASH => {
+						// May be a div symbol or comment symbol.
+						// We stash the character and go next
+						ctx.char_stash.push(c);
+						continue;
+					}
+					_ => {
+						// All other symbols can be simply added as token
+						// If we already have anything in the stash we push it as a token first
+						if !ctx.char_stash.is_empty() {
+							token_list.push(extract_token(&ctx.char_stash).unwrap());
+							ctx.char_stash.clear();
+						}
+						token_list.push(Box::new(Symbol { symbol: c }));
+					}
 				}
-				_ => {
-					// If we already have anything in the stash we push it
-					// All other symbols can be simply added as token
-					token_list.push(Box::new(Symbol { symbol: c }));
-				}
+			} else {
+				// Push all other char to stash
+				ctx.char_stash.push(c);
 			}
 		}
-		// If it is an alphabet we read until next symbol (except underscore) or space
 	}
 	// update context for the next line
 	context.in_comment = ctx.comment.in_region;
