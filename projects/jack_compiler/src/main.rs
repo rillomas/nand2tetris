@@ -15,9 +15,10 @@ struct Opts {
     input_file_or_dir: String,
 }
 
-struct Reader {
-    reader: BufReader<std::fs::File>,
+struct IOSet {
+    input: BufReader<std::fs::File>,
     origin_name: String,
+    output_file_path: PathBuf,
 }
 
 #[derive(Debug, Serialize)]
@@ -27,24 +28,27 @@ struct Tokens(Vec<Box<dyn token::Token>>);
 fn main() -> std::io::Result<()> {
     let opts = Opts::parse();
     let input_path = Path::new(&opts.input_file_or_dir);
-    println!("input: {}", input_path.display());
-    let mut output_file_path: PathBuf;
-    let mut readers = Vec::new();
+    let mut file_list = Vec::new();
     if input_path.is_file() {
         // load single file by single reader
         let file = File::open(input_path)?;
-        let reader = Reader {
-            reader: BufReader::new(file),
-            origin_name: input_path
-                .file_stem()
-                .unwrap()
-                .to_os_string()
-                .into_string()
-                .unwrap(),
+        let origin_name = input_path
+            .file_stem()
+            .unwrap()
+            .to_os_string()
+            .into_string()
+            .unwrap();
+        let mut output_file_path = PathBuf::from(input_path);
+        let out_name = format!("My{}.xml", origin_name);
+        output_file_path.set_file_name(out_name);
+        println!("input: {}", input_path.display());
+        println!("output: {}", &output_file_path.display());
+        let set = IOSet {
+            input: BufReader::new(file),
+            origin_name: origin_name,
+            output_file_path: output_file_path,
         };
-        readers.push(reader);
-        output_file_path = PathBuf::from(input_path);
-        output_file_path.set_extension("xml");
+        file_list.push(set);
     } else if input_path.is_dir() {
         // load all files by multiple reader
         for entry in std::fs::read_dir(input_path)? {
@@ -57,12 +61,18 @@ fn main() -> std::io::Result<()> {
                     .to_os_string()
                     .into_string()
                     .unwrap();
+                let mut output_file_path = path.clone();
                 let file = File::open(path)?;
-                let reader = Reader {
-                    reader: BufReader::new(file),
+                let out_name = format!("My{}.xml", origin_name);
+                output_file_path.set_file_name(out_name);
+                println!("input: {}", input_path.display());
+                println!("output: {}", &output_file_path.display());
+                let set = IOSet {
+                    input: BufReader::new(file),
                     origin_name: origin_name,
+                    output_file_path: output_file_path,
                 };
-                readers.push(reader);
+                file_list.push(set);
             }
         }
     } else {
@@ -70,17 +80,19 @@ fn main() -> std::io::Result<()> {
     }
 
     // apply tokenization and parsing for all jack files
-    for reader in readers {
+    for file in file_list {
         let mut tokens = Tokens(Vec::new());
         let mut context = token::FileContext::new();
-        for line in reader.reader.lines() {
+        for line in file.input.lines() {
             let line_text = line.unwrap();
             let mut tk = token::parse_line(&mut context, &line_text);
             tokens.0.append(&mut tk);
         }
         // println!("{:?}", tokens);
         let xml = to_string(&tokens).unwrap();
-        println!("{}", xml);
+        let mut out_file = File::create(file.output_file_path)?;
+        out_file.write(xml.as_bytes())?;
+        // println!("{}", xml);
     }
 
     Ok(())
