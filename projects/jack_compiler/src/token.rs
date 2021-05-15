@@ -52,7 +52,7 @@ pub trait Token: erased_serde::Serialize + std::fmt::Debug {
 erased_serde::serialize_trait_object!(Token);
 
 #[derive(Debug, serde::Serialize)]
-#[serde(rename_all(serialize = "lowercase"))]
+#[serde(rename(serialize = "keyword"))]
 struct Keyword(String);
 
 impl Token for Keyword {
@@ -62,7 +62,7 @@ impl Token for Keyword {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all(serialize = "lowercase"))]
+#[serde(rename(serialize = "symbol"))]
 struct Symbol(char);
 
 impl Token for Symbol {
@@ -72,7 +72,7 @@ impl Token for Symbol {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all(serialize = "lowercase"))]
+#[serde(rename(serialize = "identifier"))]
 struct Identifier(String);
 
 impl Token for Identifier {
@@ -82,7 +82,7 @@ impl Token for Identifier {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all(serialize = "camelCase"))]
+#[serde(rename(serialize = "integerConstant"))]
 struct IntegerConstant(u16);
 
 impl Token for IntegerConstant {
@@ -92,7 +92,7 @@ impl Token for IntegerConstant {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all(serialize = "camelCase"))]
+#[serde(rename(serialize = "stringConstant"))]
 struct StringConstant(String);
 
 impl Token for StringConstant {
