@@ -1,4 +1,6 @@
 use clap::{AppSettings, Clap};
+use serde::Serialize;
+use serde_xml_rs::to_string;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -15,6 +17,11 @@ struct Opts {
 struct Reader {
     reader: BufReader<std::fs::File>,
     origin_name: String,
+}
+
+#[derive(Serialize)]
+struct Tokens {
+    tokens: Vec<Box<dyn token::Token>>,
 }
 
 fn main() -> std::io::Result<()> {
@@ -64,14 +71,16 @@ fn main() -> std::io::Result<()> {
 
     // apply tokenization and parsing for all jack files
     for reader in readers {
-        let mut token_list = Vec::new();
+        let mut tokens = Tokens { tokens: Vec::new() };
         let mut context = token::FileContext::new();
         for line in reader.reader.lines() {
             let line_text = line.unwrap();
-            let mut tokens = token::parse_line(&mut context, &line_text);
-            token_list.append(&mut tokens);
+            let mut tk = token::parse_line(&mut context, &line_text);
+            tokens.tokens.append(&mut tk);
         }
-        println!("{:?}", token_list);
+        println!("{:?}", tokens.tokens);
+        let xml = to_string(&tokens).unwrap();
+        println!("{}", xml);
     }
 
     Ok(())

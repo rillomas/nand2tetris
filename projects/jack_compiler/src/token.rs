@@ -1,4 +1,4 @@
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 
 /// Context of the file parsing process
 pub struct FileContext {
@@ -46,11 +46,13 @@ pub enum KeywordType {
 	This,
 }
 
-pub trait Token: std::fmt::Debug {
+pub trait Token: erased_serde::Serialize + std::fmt::Debug {
 	fn r#type(&self) -> TokenType;
 }
+erased_serde::serialize_trait_object!(Token);
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all(serialize = "lowercase"))]
 struct Keyword(String);
 
 impl Token for Keyword {
@@ -59,7 +61,8 @@ impl Token for Keyword {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all(serialize = "lowercase"))]
 struct Symbol(char);
 
 impl Token for Symbol {
@@ -68,7 +71,8 @@ impl Token for Symbol {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all(serialize = "lowercase"))]
 struct Identifier(String);
 
 impl Token for Identifier {
@@ -77,7 +81,8 @@ impl Token for Identifier {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all(serialize = "camelCase"))]
 struct IntegerConstant(u16);
 
 impl Token for IntegerConstant {
@@ -86,7 +91,8 @@ impl Token for IntegerConstant {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all(serialize = "camelCase"))]
 struct StringConstant(String);
 
 impl Token for StringConstant {
