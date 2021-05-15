@@ -8,4 +8,5 @@ edition = "2018"
 
 [dependencies]
 clap = "3.0.0-beta.2"
+serde = "1.0.126"
 serde-xml-rs = "0.4.1"

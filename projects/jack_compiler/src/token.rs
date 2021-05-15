@@ -1,3 +1,5 @@
+use serde::{Serialize, Serializer};
+
 /// Context of the file parsing process
 pub struct FileContext {
 	/// Whether current line started as a multiline comment
@@ -49,9 +51,7 @@ pub trait Token: std::fmt::Debug {
 }
 
 #[derive(Debug)]
-struct Keyword {
-	sequence: String,
-}
+struct Keyword(String);
 
 impl Token for Keyword {
 	fn r#type(&self) -> TokenType {
@@ -60,9 +60,7 @@ impl Token for Keyword {
 }
 
 #[derive(Debug)]
-struct Symbol {
-	symbol: char,
-}
+struct Symbol(char);
 
 impl Token for Symbol {
 	fn r#type(&self) -> TokenType {
@@ -71,9 +69,7 @@ impl Token for Symbol {
 }
 
 #[derive(Debug)]
-struct Identifier {
-	sequence: String,
-}
+struct Identifier(String);
 
 impl Token for Identifier {
 	fn r#type(&self) -> TokenType {
@@ -82,9 +78,7 @@ impl Token for Identifier {
 }
 
 #[derive(Debug)]
-struct IntegerConstant {
-	value: u16,
-}
+struct IntegerConstant(u16);
 
 impl Token for IntegerConstant {
 	fn r#type(&self) -> TokenType {
@@ -93,9 +87,7 @@ impl Token for IntegerConstant {
 }
 
 #[derive(Debug)]
-struct StringConstant {
-	sequence: String,
-}
+struct StringConstant(String);
 
 impl Token for StringConstant {
 	fn r#type(&self) -> TokenType {
@@ -225,18 +217,19 @@ fn extract_token(stash: &Vec<char>) -> Result<Box<dyn Token>, &str> {
 	let word: String = stash.iter().cloned().collect();
 
 	if len == 1 && SYMBOL_LIST.contains(&stash[0]) {
-		Ok(Box::new(Symbol { symbol: stash[0] }))
+		// Got a symbol
+		Ok(Box::new(Symbol(stash[0])))
 	} else if stash[0].is_ascii_digit() {
 		// If the first symbol is an integer it is an integer const
-		Ok(Box::new(IntegerConstant {
-			value: str::parse::<u16>(&word.as_str()).unwrap(),
-		}))
+		Ok(Box::new(IntegerConstant(
+			str::parse::<u16>(&word.as_str()).unwrap(),
+		)))
 	} else if KEYWORD_LIST.contains(&word.as_str()) {
 		// If the word matches keyword list we return keyword
-		Ok(Box::new(Keyword { sequence: word }))
+		Ok(Box::new(Keyword(word)))
 	} else {
 		// all other cases are identifiers
-		Ok(Box::new(Identifier { sequence: word }))
+		Ok(Box::new(Identifier(word)))
 	}
 }
 
@@ -261,7 +254,7 @@ pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> 
 				// We are now at end of string
 				// Get all stashed characters and push to token list
 				let str = ctx.char_stash.iter().collect();
-				token_list.push(Box::new(StringConstant { sequence: str }));
+				token_list.push(Box::new(StringConstant(str)));
 				ctx.char_stash.clear();
 				ctx.in_string = false;
 			} else {
@@ -270,10 +263,15 @@ pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> 
 		} else {
 			// not in string
 			let ret = update_comment_state(&mut ctx.comment, c);
-			if matches!(ret, LineParseResult::LineComment) {
-				// We encountered a line comment symbol so we break here and go to next line.
-				// left over token should be the previous '/' symbol so we just drop it and go on
-				break;
+			match ret {
+				LineParseResult::LineComment => {
+					// We encountered a line comment symbol so we break here and go to next line.
+					// left over token should be the previous '/' symbol so we just drop it and go on
+					break;
+				}
+				LineParseResult::Continue => {
+					// We just continue
+				}
 			}
 			if ctx.comment.in_region {
 				// We are in region comment so we go to next char
@@ -306,7 +304,7 @@ pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> 
 							token_list.push(extract_token(&ctx.char_stash).unwrap());
 							ctx.char_stash.clear();
 						}
-						token_list.push(Box::new(Symbol { symbol: c }));
+						token_list.push(Box::new(Symbol(c)));
 					}
 				}
 			} else {
