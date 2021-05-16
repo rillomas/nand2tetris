@@ -143,7 +143,8 @@ const ASTERISK: char = '*';
 const SLASH: char = '/';
 const DOUBLE_QUOTE: char = '"';
 const SYMBOL_LIST: [char; 19] = [
-	'}', '{', ')', '(', '[', ']', '.', ',', ';', '+', '-', '*', SLASH, '&', '|', '<', '>', '=', '~',
+	'}', '{', ')', '(', '[', ']', '.', ',', ';', '+', '-', ASTERISK, SLASH, '&', '|', '<', '>', '=',
+	'~',
 ];
 const KEYWORD_LIST: [&str; 21] = [
 	"class",
