@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::io::BufRead;
 
 /// Context of the file parsing process
 pub struct FileContext {
@@ -21,30 +22,46 @@ pub enum TokenType {
 	StringConst,
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum KeywordType {
-	Class,
-	Method,
-	Function,
-	Constructor,
-	Int,
-	Boolean,
-	Char,
-	Void,
-	Var,
-	Static,
-	Field,
-	Let,
-	Do,
-	If,
-	Else,
-	While,
-	Return,
-	True,
-	False,
-	Null,
-	This,
+// #[derive(Debug, Copy, Clone)]
+// pub enum KeywordType {
+// 	Class,
+// 	Method,
+// 	Function,
+// 	Constructor,
+// 	Int,
+// 	Boolean,
+// 	Char,
+// 	Void,
+// 	Var,
+// 	Static,
+// 	Field,
+// 	Let,
+// 	Do,
+// 	If,
+// 	Else,
+// 	While,
+// 	Return,
+// 	True,
+// 	False,
+// 	Null,
+// 	This,
+// }
+
+/// Generate token list from given file reader
+pub fn generate_token_list(file_reader: &mut std::io::BufReader<std::fs::File>) -> TokenList {
+	let mut tokens = TokenList(Vec::new());
+	let mut context = FileContext::new();
+	for line in file_reader.lines() {
+		let line_text = line.unwrap();
+		let mut tk = parse_line(&mut context, &line_text);
+		tokens.0.append(&mut tk);
+	}
+	tokens
 }
+
+#[derive(Debug, Serialize)]
+#[serde(rename(serialize = "tokens"))]
+pub struct TokenList(Vec<Box<dyn Token>>);
 
 pub trait Token: erased_serde::Serialize + std::fmt::Debug {
 	fn r#type(&self) -> TokenType;

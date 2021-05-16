@@ -1,9 +1,7 @@
 use clap::{AppSettings, Clap};
-use serde::Serialize;
-// use serde_xml_rs::to_string;
 use quick_xml::se::to_string;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 mod token;
 
@@ -17,13 +15,8 @@ struct Opts {
 
 struct IOSet {
     input: BufReader<std::fs::File>,
-    origin_name: String,
     output_file_path: PathBuf,
 }
-
-#[derive(Debug, Serialize)]
-#[serde(rename(serialize = "tokens"))]
-struct Tokens(Vec<Box<dyn token::Token>>);
 
 fn main() -> std::io::Result<()> {
     let opts = Opts::parse();
@@ -45,7 +38,6 @@ fn main() -> std::io::Result<()> {
         println!("output: {}", &output_file_path.display());
         let set = IOSet {
             input: BufReader::new(file),
-            origin_name: origin_name,
             output_file_path: output_file_path,
         };
         file_list.push(set);
@@ -69,7 +61,6 @@ fn main() -> std::io::Result<()> {
                 println!("output: {}", &output_file_path.display());
                 let set = IOSet {
                     input: BufReader::new(file),
-                    origin_name: origin_name,
                     output_file_path: output_file_path,
                 };
                 file_list.push(set);
@@ -80,15 +71,8 @@ fn main() -> std::io::Result<()> {
     }
 
     // apply tokenization and parsing for all jack files
-    for file in file_list {
-        let mut tokens = Tokens(Vec::new());
-        let mut context = token::FileContext::new();
-        for line in file.input.lines() {
-            let line_text = line.unwrap();
-            let mut tk = token::parse_line(&mut context, &line_text);
-            tokens.0.append(&mut tk);
-        }
-        // println!("{:?}", tokens);
+    for mut file in file_list {
+        let tokens = token::generate_token_list(&mut file.input);
         let xml = to_string(&tokens).unwrap();
         let mut out_file = File::create(file.output_file_path)?;
         out_file.write(xml.as_bytes())?;
