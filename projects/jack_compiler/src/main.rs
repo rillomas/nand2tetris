@@ -15,12 +15,13 @@ struct Opts {
 
 struct IOSet {
     input: BufReader<std::fs::File>,
-    output_file_path: PathBuf,
+    input_file: PathBuf,
+    output_file: PathBuf,
 }
 
-fn main() -> std::io::Result<()> {
-    let opts = Opts::parse();
-    let input_path = Path::new(&opts.input_file_or_dir);
+/// Read a file path or directory of files to get valid input/output file paths
+fn generate_ioset(input_file_or_dir: &str) -> Result<Vec<IOSet>, std::io::Error> {
+    let input_path = Path::new(input_file_or_dir);
     let mut file_list = Vec::new();
     if input_path.is_file() {
         // load single file by single reader
@@ -34,13 +35,13 @@ fn main() -> std::io::Result<()> {
         let mut output_file_path = PathBuf::from(input_path);
         let out_name = format!("My{}.xml", origin_name);
         output_file_path.set_file_name(out_name);
-        println!("input: {}", input_path.display());
-        println!("output: {}", &output_file_path.display());
         let set = IOSet {
             input: BufReader::new(file),
-            output_file_path: output_file_path,
+            input_file: input_path.to_owned(),
+            output_file: output_file_path,
         };
         file_list.push(set);
+        Ok(file_list)
     } else if input_path.is_dir() {
         // load all files by multiple reader
         for entry in std::fs::read_dir(input_path)? {
@@ -54,29 +55,35 @@ fn main() -> std::io::Result<()> {
                     .into_string()
                     .unwrap();
                 let mut output_file_path = path.clone();
-                let file = File::open(path)?;
+                let file = File::open(&path)?;
                 let out_name = format!("My{}.xml", origin_name);
                 output_file_path.set_file_name(out_name);
-                println!("input: {}", input_path.display());
-                println!("output: {}", &output_file_path.display());
                 let set = IOSet {
                     input: BufReader::new(file),
-                    output_file_path: output_file_path,
+                    input_file: path.to_owned(),
+                    output_file: output_file_path,
                 };
                 file_list.push(set);
             }
         }
+        Ok(file_list)
     } else {
         panic!("Unsupported path specified");
     }
+}
 
+fn main() -> std::io::Result<()> {
+    let opts = Opts::parse();
+    let io_list = generate_ioset(&opts.input_file_or_dir)?;
     // apply tokenization and parsing for all jack files
-    for mut file in file_list {
-        let tokens = token::generate_token_list(&mut file.input);
+    for mut io in io_list {
+        println!("input: {}", &io.input_file.display());
+        println!("output: {}", &io.output_file.display());
+        let tokens = token::generate_token_list(&mut io.input);
         let xml = to_string(&tokens).unwrap();
-        let mut out_file = File::create(file.output_file_path)?;
-        out_file.write(xml.as_bytes())?;
-        // println!("{}", xml);
+        // let mut out_file = File::create(io.output_file)?;
+        // out_file.write(xml.as_bytes())?;
+        println!("{}", xml);
     }
 
     Ok(())
