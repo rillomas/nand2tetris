@@ -11,7 +11,3 @@ clap = "3.0.0-beta.2"
 serde = { version = "1.0.126", features = ["derive"] }
 erased-serde = "0.3.13"
 quick-xml = { version = "0.22", features = [ "serialize" ] }
-
-[[test]]
-name = "integration"
-path = "tests/main.rs"
