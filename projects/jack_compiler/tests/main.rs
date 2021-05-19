@@ -1,5 +1,5 @@
 use jack_compiler::{generate_ioset, get_origin_name, token};
-// use quick_xml::de::from_reader;
+use quick_xml::se::to_string;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -24,17 +24,11 @@ fn test_tokenized_xml() -> Result<(), std::io::Error> {
 			golden_file_path.set_file_name(golden_name);
 			let tokens = token::generate_token_list(&mut io.input);
 
-			// Generate XML from golden results
-			// let golden = File::open(golden_file_path).unwrap();
-			// let reader = BufReader::new(golden);
-			// let list: token::TokenList = from_reader(reader).unwrap();
-
-			// let xml = to_string(&tokens).unwrap();
+			// Read Golden XML results and compare with results
+			let golden_xml = std::fs::read_to_string(golden_file_path).unwrap();
+			let xml = to_string(&tokens).unwrap();
+			assert_eq!(golden_xml, xml);
 		}
 	}
 	Ok(())
-	// Read golden xml
-	// Create my xml and compare
-
-	// assert_eq!(adder::add(3, 2), 5);
 }
