@@ -1,4 +1,3 @@
-use serde::Serialize;
 use std::io::BufRead;
 
 /// Context of the file parsing process
@@ -21,6 +20,7 @@ pub enum TokenType {
 	IntegerConst,
 	StringConst,
 }
+const TOKEN_NEW_LINE: &str = "\r\n";
 
 // #[derive(Debug, Copy, Clone)]
 // pub enum KeywordType {
@@ -59,62 +59,101 @@ pub fn generate_token_list(file_reader: &mut std::io::BufReader<std::fs::File>) 
 	tokens
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename(serialize = "tokens"))]
+#[derive(Debug)]
 pub struct TokenList(Vec<Box<dyn Token>>);
 
-pub trait Token: erased_serde::Serialize + std::fmt::Debug {
-	fn r#type(&self) -> TokenType;
+impl TokenList {
+	/// Serialize each token to XML
+	pub fn serialize(&self) -> Result<String, String> {
+		let mut output = String::new();
+		let tag = "tokens";
+		let start_tag = format!("<{0}>{1}", tag, TOKEN_NEW_LINE);
+		output.push_str(&start_tag);
+		for e in &self.0 {
+			e.serialize(&mut output);
+		}
+		let end_tag = format!("</{0}>{1}", tag, TOKEN_NEW_LINE);
+		output.push_str(&end_tag);
+		Ok(output)
+	}
 }
-erased_serde::serialize_trait_object!(Token);
 
-#[derive(Debug, serde::Serialize)]
-#[serde(rename(serialize = "keyword"))]
+pub trait Token: std::fmt::Debug {
+	fn r#type(&self) -> TokenType;
+	/// Serialize each token to XML
+	fn serialize(&self, output: &mut String);
+}
+
+#[derive(Debug)]
 struct Keyword(String);
 
 impl Token for Keyword {
 	fn r#type(&self) -> TokenType {
 		TokenType::Keyword
 	}
+
+	fn serialize(&self, output: &mut String) {
+		let tag = "keyword";
+		let str = format!("<{0}> {1} </{0}>{2}", tag, self.0, TOKEN_NEW_LINE);
+		output.push_str(&str);
+	}
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename(serialize = "symbol"))]
+#[derive(Debug)]
 struct Symbol(char);
 
 impl Token for Symbol {
 	fn r#type(&self) -> TokenType {
 		TokenType::Symbol
 	}
+	fn serialize(&self, output: &mut String) {
+		let tag = "symbol";
+		let str = format!("<{0}> {1} </{0}>{2}", tag, self.0, TOKEN_NEW_LINE);
+		output.push_str(&str);
+	}
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename(serialize = "identifier"))]
+#[derive(Debug)]
 struct Identifier(String);
 
 impl Token for Identifier {
 	fn r#type(&self) -> TokenType {
 		TokenType::Identifier
 	}
+	fn serialize(&self, output: &mut String) {
+		let tag = "identifier";
+		let str = format!("<{0}> {1} </{0}>{2}", tag, self.0, TOKEN_NEW_LINE);
+		output.push_str(&str);
+	}
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename(serialize = "integerConstant"))]
+#[derive(Debug)]
 struct IntegerConstant(u16);
 
 impl Token for IntegerConstant {
 	fn r#type(&self) -> TokenType {
 		TokenType::IntegerConst
 	}
+
+	fn serialize(&self, output: &mut String) {
+		let tag = "integerConst";
+		let str = format!("<{0}> {1} </{0}>{2}", tag, self.0, TOKEN_NEW_LINE);
+		output.push_str(&str);
+	}
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename(serialize = "stringConstant"))]
+#[derive(Debug)]
 struct StringConstant(String);
 
 impl Token for StringConstant {
 	fn r#type(&self) -> TokenType {
 		TokenType::StringConst
+	}
+
+	fn serialize(&self, output: &mut String) {
+		let tag = "stringConst";
+		let str = format!("<{0}> {1} </{0}>{2}", tag, self.0, TOKEN_NEW_LINE);
+		output.push_str(&str);
 	}
 }
 

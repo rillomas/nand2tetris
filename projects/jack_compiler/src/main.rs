@@ -1,5 +1,4 @@
 use clap::{AppSettings, Clap};
-use quick_xml::se::to_string;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -25,10 +24,10 @@ fn main() -> std::io::Result<()> {
         output_file_path.set_file_name(out_name);
         println!("output: {}", &output_file_path.display());
         let tokens = jack_compiler::token::generate_token_list(&mut io.input);
-        let xml = to_string(&tokens).unwrap();
+        let xml = tokens.serialize().unwrap();
         let mut out_file = File::create(output_file_path)?;
         out_file.write(xml.as_bytes())?;
-        println!("{}", xml);
+        // print!("{}", xml);
     }
 
     Ok(())

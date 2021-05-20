@@ -1,7 +1,4 @@
 use jack_compiler::{generate_ioset, get_origin_name, token};
-use quick_xml::se::to_string;
-use std::fs::File;
-use std::io::BufReader;
 use std::path::PathBuf;
 
 const TEST_DIR: &str = "tests";
@@ -16,17 +13,17 @@ fn test_tokenized_xml() -> Result<(), std::io::Error> {
 		// println!("{:?}", target);
 		// Convert jack to token xml for each directory
 		let io_list = generate_ioset(&target)?;
-		// println!("{:?}", io_list);
 		for mut io in io_list {
 			let origin = get_origin_name(&io.input_file).unwrap();
 			let mut golden_file_path = io.input_file.clone();
 			let golden_name = format!("{}T.xml", origin);
-			golden_file_path.set_file_name(golden_name);
+			golden_file_path.set_file_name(&golden_name);
 			let tokens = token::generate_token_list(&mut io.input);
 
 			// Read Golden XML results and compare with results
 			let golden_xml = std::fs::read_to_string(golden_file_path).unwrap();
-			let xml = to_string(&tokens).unwrap();
+			let xml = tokens.serialize().unwrap();
+			println!("{} vs {}", &golden_name, io.input_file.display());
 			assert_eq!(golden_xml, xml);
 		}
 	}
