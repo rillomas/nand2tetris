@@ -4,28 +4,44 @@ use std::path::PathBuf;
 const TEST_DIR: &str = "tests";
 const DATA_DIR: &str = "data";
 
-#[test]
-fn test_tokenized_xml() -> Result<(), std::io::Error> {
-	let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-	let dirs = vec!["ArrayTest", "ExpressionLessSquare", "Square"];
-	for dir in dirs {
-		let target = root.join(TEST_DIR).join(DATA_DIR).join(dir);
-		// println!("{:?}", target);
-		// Convert jack to token xml for each directory
-		let io_list = generate_ioset(&target)?;
-		for mut io in io_list {
-			let origin = get_origin_name(&io.input_file).unwrap();
-			let mut golden_file_path = io.input_file.clone();
-			let golden_name = format!("{}T.xml", origin);
-			golden_file_path.set_file_name(&golden_name);
-			let tokens = token::generate_token_list(&mut io.input);
+fn check_test_dir(root: &PathBuf, dir: &str) -> Result<(), std::io::Error> {
+	let target = root.join(TEST_DIR).join(DATA_DIR).join(dir);
+	// println!("{:?}", target);
+	// Convert jack to token xml for each directory
+	let io_list = generate_ioset(&target)?;
+	for mut io in io_list {
+		let origin = get_origin_name(&io.input_file).unwrap();
+		let mut golden_file_path = io.input_file.clone();
+		let golden_name = format!("{}T.xml", origin);
+		golden_file_path.set_file_name(&golden_name);
+		let tokens = token::generate_token_list(&mut io.input);
 
-			// Read Golden XML results and compare with results
-			let golden_xml = std::fs::read_to_string(golden_file_path).unwrap();
-			let xml = tokens.serialize().unwrap();
-			println!("{} vs {}", &golden_name, io.input_file.display());
-			assert_eq!(golden_xml, xml);
-		}
+		// Read Golden XML results and compare with results
+		let golden_xml = std::fs::read_to_string(golden_file_path).unwrap();
+		let xml = tokens.serialize().unwrap();
+		println!("{} vs {}", &golden_name, io.input_file.display());
+		assert_eq!(golden_xml, xml);
 	}
 	Ok(())
+}
+
+#[test]
+fn test_tokenized_array_test_xml() -> Result<(), std::io::Error> {
+	let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+	let dir = "ArrayTest";
+	check_test_dir(&root, &dir)
+}
+
+#[test]
+fn test_tokenized_expression_less_square_xml() -> Result<(), std::io::Error> {
+	let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+	let dir = "ExpressionLessSquare";
+	check_test_dir(&root, &dir)
+}
+
+#[test]
+fn test_tokenized_square_xml() -> Result<(), std::io::Error> {
+	let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+	let dir = "Square";
+	check_test_dir(&root, &dir)
 }
