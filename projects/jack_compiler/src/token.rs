@@ -102,13 +102,25 @@ impl Token for Keyword {
 #[derive(Debug)]
 struct Symbol(char);
 
+fn escape_char(c: &char) -> String {
+	match c {
+		'<' => String::from("&lt;"),
+		'>' => String::from("&gt;"),
+		'"' => String::from("&quot;"),
+		'\'' => String::from("&apos;"),
+		'&' => String::from("&amp;"),
+		_other => _other.to_string(),
+	}
+}
+
 impl Token for Symbol {
 	fn r#type(&self) -> TokenType {
 		TokenType::Symbol
 	}
 	fn serialize(&self, output: &mut String) {
 		let tag = "symbol";
-		let str = format!("<{0}> {1} </{0}>{2}", tag, self.0, TOKEN_NEW_LINE);
+		let escaped = escape_char(&self.0);
+		let str = format!("<{0}> {1} </{0}>{2}", tag, escaped, TOKEN_NEW_LINE);
 		output.push_str(&str);
 	}
 }
@@ -136,7 +148,7 @@ impl Token for IntegerConstant {
 	}
 
 	fn serialize(&self, output: &mut String) {
-		let tag = "integerConst";
+		let tag = "integerConstant";
 		let str = format!("<{0}> {1} </{0}>{2}", tag, self.0, TOKEN_NEW_LINE);
 		output.push_str(&str);
 	}
@@ -151,7 +163,7 @@ impl Token for StringConstant {
 	}
 
 	fn serialize(&self, output: &mut String) {
-		let tag = "stringConst";
+		let tag = "stringConstant";
 		let str = format!("<{0}> {1} </{0}>{2}", tag, self.0, TOKEN_NEW_LINE);
 		output.push_str(&str);
 	}

@@ -28,20 +28,17 @@ fn check_test_dir(root: &PathBuf, dir: &str) -> Result<(), std::io::Error> {
 #[test]
 fn test_tokenized_array_test_xml() -> Result<(), std::io::Error> {
 	let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-	let dir = "ArrayTest";
-	check_test_dir(&root, &dir)
+	check_test_dir(&root, "ArrayTest")
 }
 
 #[test]
 fn test_tokenized_expression_less_square_xml() -> Result<(), std::io::Error> {
 	let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-	let dir = "ExpressionLessSquare";
-	check_test_dir(&root, &dir)
+	check_test_dir(&root, "ExpressionLessSquare")
 }
 
 #[test]
 fn test_tokenized_square_xml() -> Result<(), std::io::Error> {
 	let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-	let dir = "Square";
-	check_test_dir(&root, &dir)
+	check_test_dir(&root, "Square")
 }
