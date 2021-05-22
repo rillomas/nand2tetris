@@ -1,7 +1,8 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-pub mod token;
+pub mod parser;
+pub mod tokenizer;
 
 #[derive(Debug)]
 pub struct IOSet {

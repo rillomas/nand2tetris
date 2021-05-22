@@ -23,7 +23,7 @@ fn main() -> std::io::Result<()> {
         let out_name = format!("My{}.xml", origin_name);
         output_file_path.set_file_name(out_name);
         println!("output: {}", &output_file_path.display());
-        let tokens = jack_compiler::token::generate_token_list(&mut io.input);
+        let tokens = jack_compiler::tokenizer::generate_token_list(&mut io.input);
         let xml = tokens.serialize().unwrap();
         let mut out_file = File::create(output_file_path)?;
         out_file.write(xml.as_bytes())?;
