@@ -22,30 +22,30 @@ pub enum TokenType {
 }
 const TOKEN_NEW_LINE: &str = "\r\n";
 
-// #[derive(Debug, Copy, Clone)]
-// pub enum KeywordType {
-// 	Class,
-// 	Method,
-// 	Function,
-// 	Constructor,
-// 	Int,
-// 	Boolean,
-// 	Char,
-// 	Void,
-// 	Var,
-// 	Static,
-// 	Field,
-// 	Let,
-// 	Do,
-// 	If,
-// 	Else,
-// 	While,
-// 	Return,
-// 	True,
-// 	False,
-// 	Null,
-// 	This,
-// }
+#[derive(Debug, Copy, Clone)]
+pub enum KeywordType {
+	Class,
+	Method,
+	Function,
+	Constructor,
+	Int,
+	Boolean,
+	Char,
+	Void,
+	Var,
+	Static,
+	Field,
+	Let,
+	Do,
+	If,
+	Else,
+	While,
+	Return,
+	True,
+	False,
+	Null,
+	This,
+}
 
 /// Generate token list from given file reader
 pub fn generate_token_list(file_reader: &mut std::io::BufReader<std::fs::File>) -> TokenList {
@@ -63,6 +63,10 @@ pub fn generate_token_list(file_reader: &mut std::io::BufReader<std::fs::File>) 
 pub struct TokenList(Vec<Box<dyn Token>>);
 
 impl TokenList {
+	pub fn iter(&self) -> std::slice::Iter<'_, std::boxed::Box<dyn Token>> {
+		self.0.iter()
+	}
+
 	/// Serialize each token to XML
 	pub fn serialize(&self) -> Result<String, String> {
 		let mut output = String::new();
@@ -79,7 +83,7 @@ impl TokenList {
 }
 
 pub trait Token: std::fmt::Debug {
-	fn r#type(&self) -> TokenType;
+	fn token(&self) -> TokenType;
 	/// Serialize each token to XML
 	fn serialize(&self, output: &mut String);
 }
@@ -87,8 +91,36 @@ pub trait Token: std::fmt::Debug {
 #[derive(Debug)]
 struct Keyword(String);
 
+impl Keyword {
+	pub fn keyword(&self) -> KeywordType {
+		match self.0.as_str() {
+			"class" => KeywordType::Class,
+			"constructor" => KeywordType::Constructor,
+			"function" => KeywordType::Function,
+			"method" => KeywordType::Method,
+			"field" => KeywordType::Field,
+			"static" => KeywordType::Static,
+			"var" => KeywordType::Var,
+			"int" => KeywordType::Int,
+			"char" => KeywordType::Char,
+			"boolean" => KeywordType::Boolean,
+			"void" => KeywordType::Void,
+			"true" => KeywordType::True,
+			"false" => KeywordType::False,
+			"null" => KeywordType::Null,
+			"this" => KeywordType::This,
+			"let" => KeywordType::Let,
+			"do" => KeywordType::Do,
+			"if" => KeywordType::If,
+			"else" => KeywordType::Else,
+			"while" => KeywordType::While,
+			"return" => KeywordType::Return,
+			_ => panic!("Unknowon keyword"),
+		}
+	}
+}
 impl Token for Keyword {
-	fn r#type(&self) -> TokenType {
+	fn token(&self) -> TokenType {
 		TokenType::Keyword
 	}
 
@@ -114,7 +146,7 @@ fn escape_char(c: &char) -> String {
 }
 
 impl Token for Symbol {
-	fn r#type(&self) -> TokenType {
+	fn token(&self) -> TokenType {
 		TokenType::Symbol
 	}
 	fn serialize(&self, output: &mut String) {
@@ -129,7 +161,7 @@ impl Token for Symbol {
 struct Identifier(String);
 
 impl Token for Identifier {
-	fn r#type(&self) -> TokenType {
+	fn token(&self) -> TokenType {
 		TokenType::Identifier
 	}
 	fn serialize(&self, output: &mut String) {
@@ -143,7 +175,7 @@ impl Token for Identifier {
 struct IntegerConstant(u16);
 
 impl Token for IntegerConstant {
-	fn r#type(&self) -> TokenType {
+	fn token(&self) -> TokenType {
 		TokenType::IntegerConst
 	}
 
@@ -158,7 +190,7 @@ impl Token for IntegerConstant {
 struct StringConstant(String);
 
 impl Token for StringConstant {
-	fn r#type(&self) -> TokenType {
+	fn token(&self) -> TokenType {
 		TokenType::StringConst
 	}
 

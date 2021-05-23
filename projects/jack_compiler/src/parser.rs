@@ -1,4 +1,4 @@
-use super::tokenizer;
+use super::tokenizer::{generate_token_list, TokenList, TokenType};
 
 pub struct Tree {}
 
@@ -9,12 +9,24 @@ impl Tree {
 	}
 }
 
-fn parse_token_list(_tokens: &tokenizer::TokenList) -> Tree {
+struct Class {}
+
+/// Convert token list to a compiled tree
+fn parse_token_list(tokens: &TokenList) -> Tree {
+	for t in tokens.iter() {
+		match t.token() {
+			TokenType::Keyword => {}
+			TokenType::Symbol => {}
+			TokenType::Identifier => {}
+			TokenType::IntegerConst => {}
+			TokenType::StringConst => {}
+		}
+	}
 	Tree {}
 }
 
 /// Generate parsed tree from given file reader
 pub fn generate_tree(file_reader: &mut std::io::BufReader<std::fs::File>) -> Tree {
-	let tokens = tokenizer::generate_token_list(file_reader);
+	let tokens = generate_token_list(file_reader);
 	parse_token_list(&tokens)
 }
