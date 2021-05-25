@@ -1,4 +1,7 @@
-use super::tokenizer::{generate_token_list, TokenList, TokenType};
+use super::tokenizer::{
+	generate_token_list, Identifier, IntegerConstant, Keyword, StringConstant, Symbol, TokenList,
+	TokenType,
+};
 
 pub struct Tree {}
 
@@ -15,7 +18,14 @@ struct Class {}
 fn parse_token_list(tokens: &TokenList) -> Tree {
 	for t in tokens.iter() {
 		match t.token() {
-			TokenType::Keyword => {}
+			TokenType::Keyword => {
+				let keyword = t.as_any().downcast_ref::<Keyword>().unwrap();
+				// match keyword.keyword() {
+				// 	KeywordType::Class {
+				// 		// get ready to process class
+				// 	}
+				// }
+			}
 			TokenType::Symbol => {}
 			TokenType::Identifier => {}
 			TokenType::IntegerConst => {}

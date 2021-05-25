@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::io::BufRead;
 
 /// Context of the file parsing process
@@ -86,14 +87,18 @@ pub trait Token: std::fmt::Debug {
 	fn token(&self) -> TokenType;
 	/// Serialize each token to XML
 	fn serialize(&self, output: &mut String);
+	/// Used for downcasting tokens
+	fn as_any(&self) -> &dyn Any;
 }
 
 #[derive(Debug)]
-struct Keyword(String);
+pub struct Keyword {
+	value: String,
+}
 
 impl Keyword {
 	pub fn keyword(&self) -> KeywordType {
-		match self.0.as_str() {
+		match self.value.as_str() {
 			"class" => KeywordType::Class,
 			"constructor" => KeywordType::Constructor,
 			"function" => KeywordType::Function,
@@ -126,13 +131,19 @@ impl Token for Keyword {
 
 	fn serialize(&self, output: &mut String) {
 		let tag = "keyword";
-		let str = format!("<{0}> {1} </{0}>{2}", tag, self.0, TOKEN_NEW_LINE);
+		let str = format!("<{0}> {1} </{0}>{2}", tag, self.value, TOKEN_NEW_LINE);
 		output.push_str(&str);
+	}
+
+	fn as_any(&self) -> &dyn Any {
+		self
 	}
 }
 
 #[derive(Debug)]
-struct Symbol(char);
+pub struct Symbol {
+	value: char,
+}
 
 fn escape_char(c: &char) -> String {
 	match c {
@@ -151,14 +162,20 @@ impl Token for Symbol {
 	}
 	fn serialize(&self, output: &mut String) {
 		let tag = "symbol";
-		let escaped = escape_char(&self.0);
+		let escaped = escape_char(&self.value);
 		let str = format!("<{0}> {1} </{0}>{2}", tag, escaped, TOKEN_NEW_LINE);
 		output.push_str(&str);
+	}
+
+	fn as_any(&self) -> &dyn Any {
+		self
 	}
 }
 
 #[derive(Debug)]
-struct Identifier(String);
+pub struct Identifier {
+	value: String,
+}
 
 impl Token for Identifier {
 	fn token(&self) -> TokenType {
@@ -166,13 +183,19 @@ impl Token for Identifier {
 	}
 	fn serialize(&self, output: &mut String) {
 		let tag = "identifier";
-		let str = format!("<{0}> {1} </{0}>{2}", tag, self.0, TOKEN_NEW_LINE);
+		let str = format!("<{0}> {1} </{0}>{2}", tag, self.value, TOKEN_NEW_LINE);
 		output.push_str(&str);
+	}
+
+	fn as_any(&self) -> &dyn Any {
+		self
 	}
 }
 
 #[derive(Debug)]
-struct IntegerConstant(u16);
+pub struct IntegerConstant {
+	value: u16,
+}
 
 impl Token for IntegerConstant {
 	fn token(&self) -> TokenType {
@@ -181,13 +204,19 @@ impl Token for IntegerConstant {
 
 	fn serialize(&self, output: &mut String) {
 		let tag = "integerConstant";
-		let str = format!("<{0}> {1} </{0}>{2}", tag, self.0, TOKEN_NEW_LINE);
+		let str = format!("<{0}> {1} </{0}>{2}", tag, self.value, TOKEN_NEW_LINE);
 		output.push_str(&str);
+	}
+
+	fn as_any(&self) -> &dyn Any {
+		self
 	}
 }
 
 #[derive(Debug)]
-struct StringConstant(String);
+pub struct StringConstant {
+	value: String,
+}
 
 impl Token for StringConstant {
 	fn token(&self) -> TokenType {
@@ -196,8 +225,12 @@ impl Token for StringConstant {
 
 	fn serialize(&self, output: &mut String) {
 		let tag = "stringConstant";
-		let str = format!("<{0}> {1} </{0}>{2}", tag, self.0, TOKEN_NEW_LINE);
+		let str = format!("<{0}> {1} </{0}>{2}", tag, self.value, TOKEN_NEW_LINE);
 		output.push_str(&str);
+	}
+
+	fn as_any(&self) -> &dyn Any {
+		self
 	}
 }
 
@@ -325,18 +358,18 @@ fn extract_token(stash: &Vec<char>) -> Result<Box<dyn Token>, &str> {
 
 	if len == 1 && SYMBOL_LIST.contains(&stash[0]) {
 		// Got a symbol
-		Ok(Box::new(Symbol(stash[0])))
+		Ok(Box::new(Symbol { value: stash[0] }))
 	} else if stash[0].is_ascii_digit() {
 		// If the first symbol is an integer it is an integer const
-		Ok(Box::new(IntegerConstant(
-			str::parse::<u16>(&word.as_str()).unwrap(),
-		)))
+		Ok(Box::new(IntegerConstant {
+			value: str::parse::<u16>(&word.as_str()).unwrap(),
+		}))
 	} else if KEYWORD_LIST.contains(&word.as_str()) {
 		// If the word matches keyword list we return keyword
-		Ok(Box::new(Keyword(word)))
+		Ok(Box::new(Keyword { value: word }))
 	} else {
 		// all other cases are identifiers
-		Ok(Box::new(Identifier(word)))
+		Ok(Box::new(Identifier { value: word }))
 	}
 }
 
@@ -361,7 +394,7 @@ pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> 
 				// We are now at end of string
 				// Get all stashed characters and push to token list
 				let str = ctx.char_stash.iter().collect();
-				token_list.push(Box::new(StringConstant(str)));
+				token_list.push(Box::new(StringConstant { value: str }));
 				ctx.char_stash.clear();
 				ctx.in_string = false;
 			} else {
@@ -411,7 +444,7 @@ pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> 
 							token_list.push(extract_token(&ctx.char_stash).unwrap());
 							ctx.char_stash.clear();
 						}
-						token_list.push(Box::new(Symbol(c)));
+						token_list.push(Box::new(Symbol { value: c }));
 					}
 				}
 			} else {
