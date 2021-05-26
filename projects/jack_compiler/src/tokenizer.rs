@@ -50,31 +50,29 @@ pub enum KeywordType {
 
 /// Generate token list from given file reader
 pub fn generate_token_list(file_reader: &mut std::io::BufReader<std::fs::File>) -> TokenList {
-	let mut tokens = TokenList(Vec::new());
+	let mut tokens = TokenList { list: Vec::new() };
 	let mut context = FileContext::new();
 	for line in file_reader.lines() {
 		let line_text = line.unwrap();
 		let mut tk = parse_line(&mut context, &line_text);
-		tokens.0.append(&mut tk);
+		tokens.list.append(&mut tk);
 	}
 	tokens
 }
 
 #[derive(Debug)]
-pub struct TokenList(Vec<Box<dyn Token>>);
+pub struct TokenList {
+	pub list: Vec<Box<dyn Token>>,
+}
 
 impl TokenList {
-	pub fn iter(&self) -> std::slice::Iter<'_, std::boxed::Box<dyn Token>> {
-		self.0.iter()
-	}
-
 	/// Serialize each token to XML
 	pub fn serialize(&self) -> Result<String, String> {
 		let mut output = String::new();
 		let tag = "tokens";
 		let start_tag = format!("<{0}>{1}", tag, TOKEN_NEW_LINE);
 		output.push_str(&start_tag);
-		for e in &self.0 {
+		for e in &self.list {
 			e.serialize(&mut output);
 		}
 		let end_tag = format!("</{0}>{1}", tag, TOKEN_NEW_LINE);

@@ -35,11 +35,12 @@ fn test_parser(root: &PathBuf, dir: &str) -> Result<(), std::io::Error> {
 		let mut golden_file_path = io.input_file.clone();
 		let golden_name = format!("{}.xml", origin);
 		golden_file_path.set_file_name(&golden_name);
-		let tree = parser::generate_tree(&mut io.input);
+		let tree = parser::generate_tree(&mut io.input).unwrap();
 
 		// Read Golden XML results and compare with results
 		let golden_xml = std::fs::read_to_string(golden_file_path).unwrap();
-		let xml = tree.serialize().unwrap();
+		let mut xml = String::from("");
+		tree.serialize(&mut xml, 0);
 		println!("{} vs {}", &golden_name, io.input_file.display());
 		assert_eq!(golden_xml, xml);
 	}
