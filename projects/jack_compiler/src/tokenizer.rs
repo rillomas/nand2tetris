@@ -138,9 +138,17 @@ impl Token for Keyword {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Symbol {
-	value: char,
+	pub value: char,
+}
+
+impl Symbol {
+	pub fn new() -> Symbol {
+		Symbol {
+			value: '\0', // Init with a null character
+		}
+	}
 }
 
 fn escape_char(c: &char) -> String {
@@ -170,9 +178,17 @@ impl Token for Symbol {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Identifier {
-	value: String,
+	pub value: String,
+}
+
+impl Identifier {
+	pub fn new() -> Identifier {
+		Identifier {
+			value: String::new(),
+		}
+	}
 }
 
 impl Token for Identifier {
