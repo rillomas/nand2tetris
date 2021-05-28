@@ -74,6 +74,17 @@ fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, String> {
 	Ok(id)
 }
 
+fn compile_symbol(token: &Box<dyn Token>, expected: char) -> Result<&Symbol, String> {
+	if !matches!(token.token(), TokenType::Symbol) {
+		return Err(String::from("Expected Symbol token"));
+	}
+	let s = token.as_any().downcast_ref::<Symbol>().unwrap();
+	if !(s.value == expected) {
+		return Err(format!("Expected {}", expected));
+	}
+	Ok(s)
+}
+
 /// Check and ingest all tokens related to current class
 fn compile_class(
 	parent: &mut dyn Node,
@@ -88,18 +99,29 @@ fn compile_class(
 	// TODO: store name in type table
 	class.name = name.clone();
 	current_idx += 1;
-	let brace_token = &tokens.list[current_idx];
-	if !matches!(brace_token.token(), TokenType::Symbol) {
-		return Err(String::from("Expected Symbol token for class"));
+	let open_brace = compile_symbol(&tokens.list[current_idx], '{')?;
+	class.begin_symbol = open_brace.clone();
+	current_idx += 1;
+	loop {
+		let t = &tokens.list[current_idx];
+		current_idx += 1;
+		match t.token() {
+			TokenType::Symbol => {
+				let close_brace = compile_symbol(t, '}')?;
+				class.end_symbol = close_brace.clone();
+				// Once we reach close brace we exit
+				break;
+			}
+			TokenType::Keyword => {}
+			_other => {
+				// return Err(String::from("Expected symbol or keyword"));
+			}
+		}
+		// Check for classVarDec, subroutineDec, or close brace until the end
 	}
-	let brace_symbol = brace_token.as_any().downcast_ref::<Symbol>().unwrap();
-	if !(brace_symbol.value == '{') {
-		return Err(String::from("Expected open bracket for class"));
-	}
-	class.begin_symbol = brace_symbol.clone();
 	// If it seems valid we add class to the tree
 	parent.add_child(class);
-	Ok(tokens.list.len())
+	Ok(current_idx)
 }
 
 /// Convert token list to a compiled tree
