@@ -1,9 +1,12 @@
+use super::tokenizer;
 use super::tokenizer::{
-	generate_token_list, Identifier, IntegerConstant, Keyword, KeywordType, StringConstant, Symbol,
+	generate_token_list, Identifier, Keyword, KeywordType, Symbol,
 	Token, TokenList, TokenType,
 };
 
 const INDENT_STR: &'static str = "  ";
+
+type ParseError = String;
 
 pub trait Node {
 	/// Serialize node at the specified indent level
@@ -49,7 +52,7 @@ impl Class {
 
 impl Node for Class {
 	fn serialize(&self, output: &mut String, indent_level: usize) {
-		let label = "class";
+		let label = tokenizer::CLASS;
 		let indent = INDENT_STR.repeat(indent_level);
 		let start_tag = format!("{0}<{1}>\r\n", indent, label);
 		let end_tag = format!("{0}</{1}>\r\n", indent, label);
@@ -66,7 +69,7 @@ impl Node for Class {
 	fn add_child(&mut self, node: Box<dyn Node>) {}
 }
 
-fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, String> {
+fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, ParseError> {
 	if !matches!(token.token(), TokenType::Identifier) {
 		return Err(String::from("Expected Identifier token"));
 	}
@@ -74,7 +77,7 @@ fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, String> {
 	Ok(id)
 }
 
-fn compile_symbol(token: &Box<dyn Token>, expected: char) -> Result<&Symbol, String> {
+fn compile_symbol(token: &Box<dyn Token>, expected: char) -> Result<&Symbol, ParseError> {
 	if !matches!(token.token(), TokenType::Symbol) {
 		return Err(String::from("Expected Symbol token"));
 	}
@@ -90,7 +93,7 @@ fn compile_class(
 	parent: &mut dyn Node,
 	tokens: &TokenList,
 	token_index: usize,
-) -> Result<usize, String> {
+) -> Result<usize, ParseError> {
 	// Check tokens from the head to see if they are valid class tokens
 	let mut class = Box::new(Class::new());
 	let mut current_idx = token_index;
@@ -112,7 +115,19 @@ fn compile_class(
 				// Once we reach close brace we exit
 				break;
 			}
-			TokenType::Keyword => {}
+			TokenType::Keyword => {
+				// We should be looking for keywords indicating classVarDec or subroutineDec
+				let keyword = t.as_any().downcast_ref::<Keyword>().unwrap();
+				match keyword.value.as_str() {
+					tokenizer::STATIC|tokenizer::FIELD => {
+					},
+					tokenizer::CONSTRUCTOR|tokenizer::FUNCTION|tokenizer::METHOD => {
+					},
+					_ => {
+					}
+				}
+
+			}
 			_other => {
 				// return Err(String::from("Expected symbol or keyword"));
 			}
@@ -129,7 +144,7 @@ fn parse_token_list(
 	parent: &mut dyn Node,
 	tokens: &TokenList,
 	token_index: usize,
-) -> Result<usize, String> {
+) -> Result<usize, ParseError> {
 	let mut current_index = token_index;
 	loop {
 		if current_index >= tokens.list.len() {

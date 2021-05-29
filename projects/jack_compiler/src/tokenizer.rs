@@ -91,23 +91,34 @@ pub trait Token: std::fmt::Debug {
 
 #[derive(Debug)]
 pub struct Keyword {
-	value: String,
+	pub value: String,
 }
+
+pub const STATIC: &str = "static";
+pub const CONSTRUCTOR: &str = "constructor";
+pub const FUNCTION: &str = "function";
+pub const CLASS: &str = "class";
+pub const METHOD: &str = "method";
+pub const FIELD: &str = "field";
+pub const VOID: &str = "void";
+pub const INT: &str = "int";
+pub const CHAR: &str = "char";
+pub const BOOL: &str = "boolean";
 
 impl Keyword {
 	pub fn keyword(&self) -> KeywordType {
 		match self.value.as_str() {
-			"class" => KeywordType::Class,
-			"constructor" => KeywordType::Constructor,
-			"function" => KeywordType::Function,
-			"method" => KeywordType::Method,
-			"field" => KeywordType::Field,
-			"static" => KeywordType::Static,
+			CLASS => KeywordType::Class,
+			CONSTRUCTOR => KeywordType::Constructor,
+			FUNCTION => KeywordType::Function,
+			METHOD => KeywordType::Method,
+			FIELD => KeywordType::Field,
+			STATIC => KeywordType::Static,
 			"var" => KeywordType::Var,
-			"int" => KeywordType::Int,
-			"char" => KeywordType::Char,
-			"boolean" => KeywordType::Boolean,
-			"void" => KeywordType::Void,
+			INT => KeywordType::Int,
+			CHAR => KeywordType::Char,
+			BOOL => KeywordType::Boolean,
+			VOID => KeywordType::Void,
 			"true" => KeywordType::True,
 			"false" => KeywordType::False,
 			"null" => KeywordType::Null,
@@ -269,25 +280,23 @@ struct LineContext {
 	char_stash: Vec<char>,
 }
 
-const ASTERISK: char = '*';
-const SLASH: char = '/';
-const DOUBLE_QUOTE: char = '"';
 const SYMBOL_LIST: [char; 19] = [
-	'}', '{', ')', '(', '[', ']', '.', ',', ';', '+', '-', ASTERISK, SLASH, '&', '|', '<', '>', '=',
+	'}', '{', ')', '(', '[', ']', '.', ',', ';', '+', '-', '*', '/', '&', '|', '<', '>', '=',
 	'~',
 ];
+
 const KEYWORD_LIST: [&str; 21] = [
-	"class",
-	"constructor",
-	"function",
-	"method",
-	"field",
-	"static",
+	CLASS,
+	CONSTRUCTOR,
+	FUNCTION,
+	METHOD,
+	FIELD,
+	STATIC,
 	"var",
-	"int",
-	"char",
-	"boolean",
-	"void",
+	INT,
+	CHAR,
+	BOOL,
+	VOID,
 	"true",
 	"false",
 	"null",
@@ -313,14 +322,14 @@ fn update_comment_state(state: &mut CommentState, c: char) -> LineParseResult {
 	if state.in_region {
 		// In comment region
 		match c {
-			SLASH => {
+			'/' => {
 				if state.next_maybe_region_end {
 					// We have reached end of region comment
 					state.in_region = false;
 					state.next_maybe_region_end = false;
 				}
 			}
-			ASTERISK => {
+			'*' => {
 				if !state.next_maybe_region_end {
 					// If we get a slash for next char comment region will end
 					state.next_maybe_region_end = true;
@@ -334,7 +343,7 @@ fn update_comment_state(state: &mut CommentState, c: char) -> LineParseResult {
 	} else {
 		// Not in comment region
 		match c {
-			SLASH => {
+			'/' => {
 				if state.next_maybe_line_begin {
 					// line comment has begun so we skip the rest
 					return LineParseResult::LineComment;
@@ -344,7 +353,7 @@ fn update_comment_state(state: &mut CommentState, c: char) -> LineParseResult {
 					state.next_maybe_region_begin = true;
 				}
 			}
-			ASTERISK => {
+			'*' => {
 				if state.next_maybe_region_begin {
 					// region comment has begun
 					state.in_region = true;
@@ -404,7 +413,7 @@ pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> 
 		// println!("{}", c);
 		if ctx.in_string {
 			// We are currently in a string so we stash all chars unless we get the end quote
-			if c == DOUBLE_QUOTE {
+			if c == '"' {
 				// We are now at end of string
 				// Get all stashed characters and push to token list
 				let str = ctx.char_stash.iter().collect();
@@ -439,13 +448,13 @@ pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> 
 					token_list.push(extract_token(&ctx.char_stash).unwrap());
 					ctx.char_stash.clear();
 				}
-			} else if c == DOUBLE_QUOTE {
+			} else if c == '"' {
 				// We are at start of string
 				ctx.in_string = true;
 			} else if SYMBOL_LIST.contains(&c) {
 				// Got a symbol
 				match c {
-					SLASH => {
+					'/' => {
 						// May be a div symbol or comment symbol.
 						// We stash the character and go next
 						ctx.char_stash.push(c);
