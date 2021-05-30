@@ -140,7 +140,7 @@ fn compile_classvardec(
     let mut cvd = ClassVarDec::new();
 
     parent.add_child(Box::new(cvd));
-    Ok(current_idx)
+    Ok(current_idx + 1)
 }
 
 fn compile_subroutinedec(
@@ -151,7 +151,7 @@ fn compile_subroutinedec(
     let mut current_idx = token_index;
     let mut sd = SubroutineDec::new();
     parent.add_child(Box::new(sd));
-    Ok(current_idx)
+    Ok(current_idx + 1)
 }
 
 fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, ParseError> {
@@ -191,8 +191,8 @@ fn compile_class(
     class.begin_symbol = open_brace.clone();
     current_idx += 1;
     loop {
+        // Check for classVarDec, subroutineDec, or close brace until the end
         let t = &tokens.list[current_idx];
-        current_idx += 1;
         match t.token() {
             TokenType::Symbol => {
                 let close_brace = compile_symbol(t, '}');
@@ -202,6 +202,7 @@ fn compile_class(
                     // Once we reach close brace we exit
                     break;
                 }
+                current_idx += 1;
             }
             TokenType::Keyword => {
                 // We should be looking for keywords indicating classVarDec or subroutineDec
@@ -216,14 +217,15 @@ fn compile_class(
                     }
                     _ => {
                         // return Err(format!("Got unexpected keyword {}", keyword.value));
+                        current_idx += 1;
                     }
                 }
             }
             _other => {
                 // return Err(String::from("Expected symbol or keyword"));
+                current_idx += 1;
             }
         }
-        // Check for classVarDec, subroutineDec, or close brace until the end
     }
     // If it seems valid we add class to the tree
     parent.add_child(Box::new(class));
