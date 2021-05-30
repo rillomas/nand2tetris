@@ -89,7 +89,7 @@ pub trait Token: std::fmt::Debug {
     fn as_any(&self) -> &dyn Any;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Keyword {
     pub value: String,
 }
@@ -106,6 +106,12 @@ pub const CHAR: &str = "char";
 pub const BOOL: &str = "boolean";
 
 impl Keyword {
+    pub fn new() -> Keyword {
+        Keyword {
+            value: String::new(),
+        }
+    }
+
     pub fn keyword(&self) -> KeywordType {
         match self.value.as_str() {
             CLASS => KeywordType::Class,
