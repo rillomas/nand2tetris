@@ -102,7 +102,8 @@ impl Node for ClassVarDec {
         let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
         let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
         output.push_str(&start_tag);
-        // let next_level = indent_level + 1;
+        let next_level = indent_level + 1;
+        self.prefix.serialize(output, next_level);
         // for c in &self.var_names {
         //     c.serialize(output, next_level);
         // }
@@ -135,9 +136,10 @@ impl Node for SubroutineDec {
         let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
         output.push_str(&start_tag);
         let next_level = indent_level + 1;
-        for c in &self.children {
-            c.serialize(output, next_level);
-        }
+        self.prefix.serialize(output, next_level);
+        // for c in &self.children {
+        //     c.serialize(output, next_level);
+        // }
         output.push_str(&end_tag);
     }
     fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
