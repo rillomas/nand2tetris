@@ -3,9 +3,9 @@ use std::ops::Deref;
 use super::tokenizer;
 use super::tokenizer::{
     generate_token_list, Identifier, Keyword, KeywordType, Symbol, Token, TokenList, TokenType,
+    INDENT_STR, NEW_LINE,
 };
 
-const INDENT_STR: &'static str = "  ";
 const CLASS_VAR_DEC: &'static str = "classVarDec";
 const SUBROUTINE_DEC: &'static str = "subroutineDec";
 type ParseError = String;
@@ -59,17 +59,17 @@ impl Node for Class {
     fn serialize(&self, output: &mut String, indent_level: usize) {
         let label = tokenizer::CLASS;
         let indent = INDENT_STR.repeat(indent_level);
-        let start_tag = format!("{0}<{1}>\r\n", indent, label);
-        let end_tag = format!("{0}</{1}>\r\n", indent, label);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
         output.push_str(&start_tag);
-        self.prefix.serialize(output);
-        self.name.serialize(output);
-        self.begin_symbol.serialize(output);
         let next_level = indent_level + 1;
+        self.prefix.serialize(output, next_level);
+        self.name.serialize(output, next_level);
+        self.begin_symbol.serialize(output, next_level);
         for c in &self.children {
             c.serialize(output, next_level);
         }
-        self.end_symbol.serialize(output);
+        self.end_symbol.serialize(output, next_level);
         output.push_str(&end_tag);
     }
     fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
@@ -85,9 +85,9 @@ struct ClassVarDec {
 }
 
 impl ClassVarDec {
-    fn new() -> ClassVarDec {
+    fn new(prefix: Keyword) -> ClassVarDec {
         ClassVarDec {
-            prefix: Keyword::new(),
+            prefix: prefix,
             var_type: Identifier::new(),
             end_symbol: Symbol::new(),
             var_names: Vec::new(),
@@ -99,8 +99,8 @@ impl Node for ClassVarDec {
     fn serialize(&self, output: &mut String, indent_level: usize) {
         let label = CLASS_VAR_DEC;
         let indent = INDENT_STR.repeat(indent_level);
-        let start_tag = format!("{0}<{1}>\r\n", indent, label);
-        let end_tag = format!("{0}</{1}>\r\n", indent, label);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
         output.push_str(&start_tag);
         // let next_level = indent_level + 1;
         // for c in &self.var_names {
@@ -114,12 +114,14 @@ impl Node for ClassVarDec {
 }
 
 struct SubroutineDec {
+    prefix: Keyword,
     children: Vec<Box<dyn Node>>,
 }
 
 impl SubroutineDec {
-    fn new() -> SubroutineDec {
+    fn new(prefix: Keyword) -> SubroutineDec {
         SubroutineDec {
+            prefix: prefix,
             children: Vec::new(),
         }
     }
@@ -129,8 +131,8 @@ impl Node for SubroutineDec {
     fn serialize(&self, output: &mut String, indent_level: usize) {
         let label = SUBROUTINE_DEC;
         let indent = INDENT_STR.repeat(indent_level);
-        let start_tag = format!("{0}<{1}>\r\n", indent, label);
-        let end_tag = format!("{0}</{1}>\r\n", indent, label);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
         output.push_str(&start_tag);
         let next_level = indent_level + 1;
         for c in &self.children {
@@ -144,25 +146,20 @@ impl Node for SubroutineDec {
 }
 
 fn compile_classvardec(
-    parent: &mut dyn Node,
+    target: &mut ClassVarDec,
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<usize, ParseError> {
     let mut current_idx = token_index;
-    let mut cvd = ClassVarDec::new();
-
-    parent.add_child(Box::new(cvd))?;
     Ok(current_idx + 1)
 }
 
 fn compile_subroutinedec(
-    parent: &mut dyn Node,
+    target: &mut SubroutineDec,
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<usize, ParseError> {
     let mut current_idx = token_index;
-    let mut sd = SubroutineDec::new();
-    parent.add_child(Box::new(sd))?;
     Ok(current_idx + 1)
 }
 
@@ -220,11 +217,14 @@ fn compile_class(
                 let keyword = t.as_any().downcast_ref::<Keyword>().unwrap();
                 match keyword.value.as_str() {
                     tokenizer::STATIC | tokenizer::FIELD => {
-                        // we should now have a classVarDec
-                        current_idx = compile_classvardec(class, tokens, current_idx)?;
+                        let mut cvd = ClassVarDec::new(keyword.clone());
+                        current_idx = compile_classvardec(&mut cvd, tokens, current_idx)?;
+                        class.add_child(Box::new(cvd))?;
                     }
                     tokenizer::CONSTRUCTOR | tokenizer::FUNCTION | tokenizer::METHOD => {
-                        current_idx = compile_subroutinedec(class, tokens, current_idx)?;
+                        let mut sd = SubroutineDec::new(keyword.clone());
+                        current_idx = compile_subroutinedec(&mut sd, tokens, current_idx)?;
+                        class.add_child(Box::new(sd))?;
                     }
                     _ => {
                         // return Err(format!("Got unexpected keyword {}", keyword.value));

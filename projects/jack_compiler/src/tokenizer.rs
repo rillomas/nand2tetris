@@ -21,7 +21,9 @@ pub enum TokenType {
     IntegerConst,
     StringConst,
 }
-const TOKEN_NEW_LINE: &str = "\r\n";
+pub const NEW_LINE: &str = "\r\n";
+pub const INDENT_STR: &'static str = "  ";
+type SerializeError = String;
 
 #[derive(Debug, Copy, Clone)]
 pub enum KeywordType {
@@ -67,15 +69,15 @@ pub struct TokenList {
 
 impl TokenList {
     /// Serialize each token to XML
-    pub fn serialize(&self) -> Result<String, String> {
+    pub fn serialize(&self) -> Result<String, SerializeError> {
         let mut output = String::new();
         let tag = "tokens";
-        let start_tag = format!("<{0}>{1}", tag, TOKEN_NEW_LINE);
+        let start_tag = format!("<{0}>{1}", tag, NEW_LINE);
+        let end_tag = format!("</{0}>{1}", tag, NEW_LINE);
         output.push_str(&start_tag);
         for e in &self.list {
-            e.serialize(&mut output);
+            e.serialize(&mut output, 0);
         }
-        let end_tag = format!("</{0}>{1}", tag, TOKEN_NEW_LINE);
         output.push_str(&end_tag);
         Ok(output)
     }
@@ -84,7 +86,7 @@ impl TokenList {
 pub trait Token: std::fmt::Debug {
     fn token(&self) -> TokenType;
     /// Serialize each token to XML
-    fn serialize(&self, output: &mut String);
+    fn serialize(&self, output: &mut String, indent_level: usize);
     /// Used for downcasting tokens
     fn as_any(&self) -> &dyn Any;
 }
@@ -144,9 +146,10 @@ impl Token for Keyword {
         TokenType::Keyword
     }
 
-    fn serialize(&self, output: &mut String) {
+    fn serialize(&self, output: &mut String, indent_level: usize) {
         let tag = "keyword";
-        let str = format!("<{0}> {1} </{0}>{2}", tag, self.value, TOKEN_NEW_LINE);
+        let indent = INDENT_STR.repeat(indent_level);
+        let str = format!("{0}<{1}> {2} </{1}>{3}", indent, tag, self.value, NEW_LINE);
         output.push_str(&str);
     }
 
@@ -183,10 +186,11 @@ impl Token for Symbol {
     fn token(&self) -> TokenType {
         TokenType::Symbol
     }
-    fn serialize(&self, output: &mut String) {
+    fn serialize(&self, output: &mut String, indent_level: usize) {
         let tag = "symbol";
         let escaped = escape_char(&self.value);
-        let str = format!("<{0}> {1} </{0}>{2}", tag, escaped, TOKEN_NEW_LINE);
+        let indent = INDENT_STR.repeat(indent_level);
+        let str = format!("{0}<{1}> {2} </{1}>{3}", indent, tag, escaped, NEW_LINE);
         output.push_str(&str);
     }
 
@@ -212,9 +216,10 @@ impl Token for Identifier {
     fn token(&self) -> TokenType {
         TokenType::Identifier
     }
-    fn serialize(&self, output: &mut String) {
+    fn serialize(&self, output: &mut String, indent_level: usize) {
         let tag = "identifier";
-        let str = format!("<{0}> {1} </{0}>{2}", tag, self.value, TOKEN_NEW_LINE);
+        let indent = INDENT_STR.repeat(indent_level);
+        let str = format!("{0}<{1}> {2} </{1}>{3}", indent, tag, self.value, NEW_LINE);
         output.push_str(&str);
     }
 
@@ -233,9 +238,10 @@ impl Token for IntegerConstant {
         TokenType::IntegerConst
     }
 
-    fn serialize(&self, output: &mut String) {
+    fn serialize(&self, output: &mut String, indent_level: usize) {
         let tag = "integerConstant";
-        let str = format!("<{0}> {1} </{0}>{2}", tag, self.value, TOKEN_NEW_LINE);
+        let indent = INDENT_STR.repeat(indent_level);
+        let str = format!("{0}<{1}> {2} </{1}>{3}", indent, tag, self.value, NEW_LINE);
         output.push_str(&str);
     }
 
@@ -254,9 +260,10 @@ impl Token for StringConstant {
         TokenType::StringConst
     }
 
-    fn serialize(&self, output: &mut String) {
+    fn serialize(&self, output: &mut String, indent_level: usize) {
         let tag = "stringConstant";
-        let str = format!("<{0}> {1} </{0}>{2}", tag, self.value, TOKEN_NEW_LINE);
+        let indent = INDENT_STR.repeat(indent_level);
+        let str = format!("{0}<{1}> {2} </{1}>{3}", indent, tag, self.value, NEW_LINE);
         output.push_str(&str);
     }
 
