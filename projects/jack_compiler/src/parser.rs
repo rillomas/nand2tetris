@@ -9,10 +9,11 @@ use super::tokenizer::{
 const CLASS_VAR_DEC: &'static str = "classVarDec";
 const SUBROUTINE_DEC: &'static str = "subroutineDec";
 type ParseError = String;
+type SerializeError = String;
 
 pub trait Node {
     /// Serialize node at the specified indent level
-    fn serialize(&self, output: &mut String, indent_level: usize);
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
     /// Add child node.
     /// If node cannot add a child an error is returned
     fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError>;
@@ -23,11 +24,12 @@ struct Root {
 }
 
 impl Node for Root {
-    fn serialize(&self, output: &mut String, _indent_level: usize) {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         for n in &self.children {
             // Root class is the root so all children are at level 0 indent
-            n.serialize(output, 0);
+            n.serialize(output, 0)?;
         }
+        Ok(())
     }
 
     fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
@@ -56,22 +58,24 @@ impl Class {
 }
 
 impl Node for Class {
-    fn serialize(&self, output: &mut String, indent_level: usize) {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = tokenizer::CLASS;
         let indent = INDENT_STR.repeat(indent_level);
         let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
         let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
         output.push_str(&start_tag);
         let next_level = indent_level + 1;
-        self.prefix.serialize(output, next_level);
-        self.name.serialize(output, next_level);
-        self.begin_symbol.serialize(output, next_level);
+        self.prefix.serialize(output, next_level)?;
+        self.name.serialize(output, next_level)?;
+        self.begin_symbol.serialize(output, next_level)?;
         for c in &self.children {
-            c.serialize(output, next_level);
+            c.serialize(output, next_level)?;
         }
-        self.end_symbol.serialize(output, next_level);
+        self.end_symbol.serialize(output, next_level)?;
         output.push_str(&end_tag);
+        Ok(())
     }
+
     fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
         Ok(self.children.push(node))
     }
@@ -80,8 +84,9 @@ impl Node for Class {
 struct ClassVarDec {
     prefix: Keyword,
     var_type: Identifier,
-    end_symbol: Symbol,
     var_names: Vec<Identifier>,
+    var_delimiter: Vec<Symbol>,
+    end_symbol: Symbol,
 }
 
 impl ClassVarDec {
@@ -89,25 +94,48 @@ impl ClassVarDec {
         ClassVarDec {
             prefix: prefix,
             var_type: Identifier::new(),
-            end_symbol: Symbol::new(),
             var_names: Vec::new(),
+            var_delimiter: Vec::new(),
+            end_symbol: Symbol::new(),
         }
     }
 }
 
 impl Node for ClassVarDec {
-    fn serialize(&self, output: &mut String, indent_level: usize) {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        // number of vars and number of delimiters should match unless when we only have one var_name
+        let var_num = self.var_names.len();
+        let delim_num = self.var_delimiter.len();
+        if var_num == 0 {
+            return Err(String::from("Missing variable name"));
+        } else if (var_num == 1) && (delim_num != 0) {
+            return Err(String::from(
+                "No delimiter should exist when we only have one variable",
+            ));
+        } else if (var_num > 1) && (delim_num != var_num) {
+            return Err(String::from("Number of delimiter should match number of variables when there are multiple variables"));
+        }
         let label = CLASS_VAR_DEC;
         let indent = INDENT_STR.repeat(indent_level);
         let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
         let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
         output.push_str(&start_tag);
         let next_level = indent_level + 1;
-        self.prefix.serialize(output, next_level);
-        // for c in &self.var_names {
-        //     c.serialize(output, next_level);
-        // }
+        self.prefix.serialize(output, next_level)?;
+        self.var_type.serialize(output, next_level)?;
+        if var_num == 1 {
+            // single variable
+            self.var_names[0].serialize(output, next_level)?;
+        } else {
+            // multiple variables
+            for i in 0..var_num {
+                self.var_names[i].serialize(output, next_level)?;
+                self.var_delimiter[i].serialize(output, next_level)?;
+            }
+        }
+        self.end_symbol.serialize(output, next_level)?;
         output.push_str(&end_tag);
+        Ok(())
     }
     fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
         Err(String::from("Cannot add children directly"))
@@ -129,18 +157,19 @@ impl SubroutineDec {
 }
 
 impl Node for SubroutineDec {
-    fn serialize(&self, output: &mut String, indent_level: usize) {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = SUBROUTINE_DEC;
         let indent = INDENT_STR.repeat(indent_level);
         let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
         let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
         output.push_str(&start_tag);
         let next_level = indent_level + 1;
-        self.prefix.serialize(output, next_level);
+        self.prefix.serialize(output, next_level)?;
         // for c in &self.children {
         //     c.serialize(output, next_level);
         // }
         output.push_str(&end_tag);
+        Ok(())
     }
     fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
         Ok(self.children.push(node))
