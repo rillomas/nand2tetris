@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use std::thread::current;
 
 use super::tokenizer;
 use super::tokenizer::{
@@ -34,6 +35,19 @@ impl Node for Root {
 
     fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
         Ok(self.children.push(node))
+    }
+}
+
+struct Context {
+    /// Names of all user defined classes.
+    /// Used to resolve types
+    class_names: Vec<String>,
+}
+impl Context {
+    fn new() -> Context {
+        Context {
+            class_names: Vec::new(),
+        }
     }
 }
 
@@ -83,7 +97,7 @@ impl Node for Class {
 
 struct ClassVarDec {
     prefix: Keyword,
-    var_type: Identifier,
+    var_type: Option<Box<dyn Token>>, // var_type maybe a Keyword or an Identifier
     var_names: Vec<Identifier>,
     var_delimiter: Vec<Symbol>,
     end_symbol: Symbol,
@@ -93,7 +107,7 @@ impl ClassVarDec {
     fn new(prefix: Keyword) -> ClassVarDec {
         ClassVarDec {
             prefix: prefix,
-            var_type: Identifier::new(),
+            var_type: None,
             var_names: Vec::new(),
             var_delimiter: Vec::new(),
             end_symbol: Symbol::new(),
@@ -122,7 +136,11 @@ impl Node for ClassVarDec {
         output.push_str(&start_tag);
         let next_level = indent_level + 1;
         self.prefix.serialize(output, next_level)?;
-        self.var_type.serialize(output, next_level)?;
+        // Serialize var type. Either a builtin type or a user class should be specified
+        self.var_type
+            .as_ref()
+            .unwrap()
+            .serialize(output, next_level)?;
         if var_num == 1 {
             // single variable
             self.var_names[0].serialize(output, next_level)?;
@@ -176,13 +194,68 @@ impl Node for SubroutineDec {
     }
 }
 
+fn compile_type(
+    ctx: &mut Context,
+    token: &Box<dyn Token>,
+) -> Result<Option<Box<dyn Token>>, ParseError> {
+    match token.token() {
+        TokenType::Keyword => {
+            let word = token.as_any().downcast_ref::<Keyword>().unwrap();
+            match word.value.as_str() {
+                tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL => {
+                    Ok(Some(Box::new(word.to_owned())))
+                }
+                _other => Err(format!("Got unexpected keyword: {}", _other)),
+            }
+        }
+        TokenType::Identifier => {
+            let id = token.as_any().downcast_ref::<Identifier>().unwrap();
+            if !ctx.class_names.contains(&id.value) {
+                return Err(format!("Got unknown type name: {}", id.value));
+            }
+            Ok(Some(Box::new(id.to_owned())))
+        }
+        _other => Err(format!("Got unexpected token type: {:?}", _other)),
+    }
+}
+
 fn compile_classvardec(
+    ctx: &mut Context,
     target: &mut ClassVarDec,
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<usize, ParseError> {
     let mut current_idx = token_index;
-    Ok(current_idx + 1)
+    target.var_type = compile_type(ctx, &tokens.list[current_idx])?;
+    current_idx += 1;
+    loop {
+        let tk = &tokens.list[current_idx];
+        match tk.token() {
+            TokenType::Symbol => {
+                let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+                match s.value {
+                    ',' => target.var_delimiter.push(s.to_owned()),
+                    ';' => {
+                        // We got end of node symbol so we store it and go next
+                        target.end_symbol = s.to_owned();
+                        break;
+                    }
+                    _other => {
+                        return Err(format!("Got unexpected symbol: {}", s.value));
+                    }
+                }
+            }
+            TokenType::Identifier => {
+                let i = tk.as_any().downcast_ref::<Identifier>().unwrap();
+                target.var_names.push(i.to_owned());
+            }
+            _other => {
+                return Err(format!("Got unexpected token type: {:?}", _other));
+            }
+        }
+        current_idx += 1;
+    }
+    Ok(current_idx)
 }
 
 fn compile_subroutinedec(
@@ -191,7 +264,7 @@ fn compile_subroutinedec(
     token_index: usize,
 ) -> Result<usize, ParseError> {
     let mut current_idx = token_index;
-    Ok(current_idx + 1)
+    Ok(current_idx)
 }
 
 fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, ParseError> {
@@ -215,6 +288,7 @@ fn compile_symbol(token: &Box<dyn Token>, expected: char) -> Result<&Symbol, Par
 
 /// Check and ingest all tokens related to current class
 fn compile_class(
+    ctx: &mut Context,
     class: &mut Class,
     tokens: &TokenList,
     token_index: usize,
@@ -223,7 +297,7 @@ fn compile_class(
     let mut current_idx = token_index;
     let name_token = &tokens.list[current_idx];
     let name = compile_identifier(name_token)?;
-    // TODO: store name in type table
+    ctx.class_names.push(name.value.clone()); // store name in type table
     class.name = name.clone();
     current_idx += 1;
     let open_brace = compile_symbol(&tokens.list[current_idx], '{')?;
@@ -249,12 +323,12 @@ fn compile_class(
                 match keyword.value.as_str() {
                     tokenizer::STATIC | tokenizer::FIELD => {
                         let mut cvd = ClassVarDec::new(keyword.clone());
-                        current_idx = compile_classvardec(&mut cvd, tokens, current_idx)?;
+                        current_idx = compile_classvardec(ctx, &mut cvd, tokens, current_idx + 1)?;
                         class.add_child(Box::new(cvd))?;
                     }
                     tokenizer::CONSTRUCTOR | tokenizer::FUNCTION | tokenizer::METHOD => {
                         let mut sd = SubroutineDec::new(keyword.clone());
-                        current_idx = compile_subroutinedec(&mut sd, tokens, current_idx)?;
+                        current_idx = compile_subroutinedec(&mut sd, tokens, current_idx + 1)?;
                         class.add_child(Box::new(sd))?;
                     }
                     _ => {
@@ -274,6 +348,7 @@ fn compile_class(
 
 /// Convert token list to a compiled tree
 fn parse_token_list(
+    ctx: &mut Context,
     parent: &mut dyn Node,
     tokens: &TokenList,
     token_index: usize,
@@ -292,7 +367,7 @@ fn parse_token_list(
                 match keyword.keyword() {
                     KeywordType::Class => {
                         let mut class = Class::new(keyword.clone());
-                        current_index = compile_class(&mut class, tokens, current_index + 1)?;
+                        current_index = compile_class(ctx, &mut class, tokens, current_index + 1)?;
                         parent.add_child(Box::new(class))?;
                     }
                     _other => {
@@ -325,6 +400,7 @@ pub fn generate_tree(
     let mut root = Root {
         children: Vec::new(),
     };
-    parse_token_list(&mut root, &tokens, 0)?;
+    let mut ctx = Context::new();
+    parse_token_list(&mut ctx, &mut root, &tokens, 0)?;
     Ok(Box::new(root))
 }
