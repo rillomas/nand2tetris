@@ -39,6 +39,13 @@ fn test_parser(root: &PathBuf, dir: &str) -> Result<(), std::io::Error> {
         let mut golden_file_path = io.input_file.clone();
         let golden_name = format!("{}.xml", origin);
         golden_file_path.set_file_name(&golden_name);
+        // let tree = match parser::parse_file(&mut io.input) {
+        //     Err(e) => {
+        //         println!("Error: {}", e);
+        //         println!("Source: {}", e.source().unwrap);
+        //     },
+        //     _t => _t
+        // }
         let tree = parser::parse_file(&mut io.input).unwrap();
 
         // Read Golden XML results and compare with results

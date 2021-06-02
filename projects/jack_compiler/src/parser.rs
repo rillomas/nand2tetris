@@ -74,7 +74,7 @@ impl Node for Class {
 
 struct ClassVarDec {
     prefix: Keyword,
-    var_type: Option<Box<dyn Token>>, // var_type maybe a Keyword or an Identifier
+    var_type: Box<dyn Token>, // var_type maybe a Keyword or an Identifier
     var_names: Vec<Identifier>,
     var_delimiter: Vec<Symbol>,
     end_symbol: Symbol,
@@ -84,7 +84,7 @@ impl ClassVarDec {
     fn new(prefix: Keyword) -> ClassVarDec {
         ClassVarDec {
             prefix: prefix,
-            var_type: None,
+            var_type: Box::new(Keyword::new()),
             var_names: Vec::new(),
             var_delimiter: Vec::new(),
             end_symbol: Symbol::new(),
@@ -114,10 +114,7 @@ impl Node for ClassVarDec {
         let next_level = indent_level + 1;
         self.prefix.serialize(output, next_level)?;
         // Serialize var type. Either a builtin type or a user class should be specified
-        self.var_type
-            .as_ref()
-            .unwrap()
-            .serialize(output, next_level)?;
+        self.var_type.serialize(output, next_level)?;
         if var_num == 1 {
             // single variable
             self.var_names[0].serialize(output, next_level)?;
@@ -136,9 +133,12 @@ impl Node for ClassVarDec {
 
 struct SubroutineDec {
     prefix: Keyword,
-    return_type: Option<Box<dyn Token>>, // var_type maybe a Keyword or an Identifier
+    return_type: Box<dyn Token>, // var_type is a Keyword or an Identifier
     name: Identifier,
     start_param_list: Symbol,
+    param_type: Vec<Box<dyn Token>>, // param_type is a Keyword or an Identifier
+    param_name: Vec<Identifier>,
+    param_delimiter: Vec<Symbol>,
     end_param_list: Symbol,
 }
 
@@ -146,9 +146,12 @@ impl SubroutineDec {
     fn new(prefix: Keyword) -> SubroutineDec {
         SubroutineDec {
             prefix: prefix,
-            return_type: None,
+            return_type: Box::new(Keyword::new()),
             name: Identifier::new(),
             start_param_list: Symbol::new(),
+            param_type: Vec::new(),
+            param_name: Vec::new(),
+            param_delimiter: Vec::new(),
             end_param_list: Symbol::new(),
         }
     }
@@ -163,10 +166,7 @@ impl Node for SubroutineDec {
         output.push_str(&start_tag);
         let next_level = indent_level + 1;
         self.prefix.serialize(output, next_level)?;
-        // self.return_type
-        //     .as_ref()
-        //     .unwrap()
-        //     .serialize(output, next_level)?;
+        self.return_type.serialize(output, next_level)?;
         self.name.serialize(output, next_level)?;
         self.start_param_list.serialize(output, next_level)?;
         self.end_param_list.serialize(output, next_level)?;
@@ -176,16 +176,96 @@ impl Node for SubroutineDec {
     }
 }
 
-fn compile_type(
+fn compile_subroutinedec(
     ctx: &mut Context,
-    token: &Box<dyn Token>,
-) -> Result<Option<Box<dyn Token>>, ParseError> {
+    target: &mut SubroutineDec,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, ParseError> {
+    let mut current_idx = token_index;
+    target.return_type = compile_return_type(ctx, &tokens.list[current_idx])?;
+    current_idx += 1;
+    target.name = compile_identifier(&tokens.list[current_idx])?.to_owned();
+    current_idx += 1;
+    let s = compile_symbol(&tokens.list[current_idx])?.to_owned();
+    if s.value != '(' {
+        return Err(String::from("Expected '('"));
+    }
+    target.start_param_list = s;
+    current_idx += 1;
+    // compile param list
+    loop {
+        // compile param type and name once
+        target
+            .param_type
+            .push(compile_type(ctx, &tokens.list[current_idx])?);
+        current_idx += 1;
+        target
+            .param_name
+            .push(compile_identifier(&tokens.list[current_idx])?.to_owned());
+        current_idx += 1;
+        break;
+        // If we have a comma next we compile another round of params
+        // If we have a semicolon param list is finished
+        // let tk = &tokens.list[current_idx];
+        // match tk.token() {
+        //     TokenType::Symbol => {
+        //         let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+        //         match s.value {
+        //             ',' => target.param_delimiter.push(s.to_owned()),
+        //             ')' => {
+        //                 // We got end of node symbol so we store it and go next
+        //                 target.end_param_list = s.to_owned();
+        //                 break;
+        //             }
+        //             _other => {
+        //                 return Err(format!("Got unexpected symbol: {}", s.value));
+        //             }
+        //         }
+        //     }
+        //     TokenType::Identifier => {
+        //         let i = tk.as_any().downcast_ref::<Identifier>().unwrap();
+        //         target.var_names.push(i.to_owned());
+        //     }
+        //     _other => {
+        //         return Err(format!("Got unexpected token type: {:?}", _other));
+        //     }
+        // }
+    }
+    Ok(current_idx)
+}
+
+fn compile_type(ctx: &mut Context, token: &Box<dyn Token>) -> Result<Box<dyn Token>, ParseError> {
     match token.token() {
         TokenType::Keyword => {
             let word = token.as_any().downcast_ref::<Keyword>().unwrap();
             match word.value.as_str() {
-                tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL => {
-                    Ok(Some(Box::new(word.to_owned())))
+                tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL => Ok(Box::new(word.to_owned())),
+                _other => Err(format!("Got unexpected keyword: {}", _other)),
+            }
+        }
+        TokenType::Identifier => {
+            let id = token.as_any().downcast_ref::<Identifier>().unwrap();
+            if !ctx.class_names.contains(&id.value) {
+                return Err(format!("Got unknown type name: {}", id.value));
+            }
+            Ok(Box::new(id.to_owned()))
+        }
+        _other => Err(format!("Got unexpected token type: {:?}", _other)),
+    }
+}
+
+/// Compile return type of a subroutine
+fn compile_return_type(
+    ctx: &mut Context,
+    token: &Box<dyn Token>,
+) -> Result<Box<dyn Token>, ParseError> {
+    match token.token() {
+        TokenType::Keyword => {
+            let word = token.as_any().downcast_ref::<Keyword>().unwrap();
+            match word.value.as_str() {
+                tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL | tokenizer::VOID => {
+                    Ok(Box::new(word.to_owned()))
                 }
                 _other => Err(format!("Got unexpected keyword: {}", _other)),
             }
@@ -195,12 +275,11 @@ fn compile_type(
             if !ctx.class_names.contains(&id.value) {
                 return Err(format!("Got unknown type name: {}", id.value));
             }
-            Ok(Some(Box::new(id.to_owned())))
+            Ok(Box::new(id.to_owned()))
         }
         _other => Err(format!("Got unexpected token type: {:?}", _other)),
     }
 }
-
 fn compile_classvardec(
     ctx: &mut Context,
     target: &mut ClassVarDec,
@@ -240,15 +319,6 @@ fn compile_classvardec(
     Ok(current_idx)
 }
 
-fn compile_subroutinedec(
-    target: &mut SubroutineDec,
-    tokens: &TokenList,
-    token_index: usize,
-) -> Result<usize, ParseError> {
-    let mut current_idx = token_index;
-    Ok(current_idx)
-}
-
 fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, ParseError> {
     if !matches!(token.token(), TokenType::Identifier) {
         return Err(String::from("Expected Identifier token"));
@@ -257,14 +327,11 @@ fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, ParseError>
     Ok(id)
 }
 
-fn compile_symbol(token: &Box<dyn Token>, expected: char) -> Result<&Symbol, ParseError> {
+fn compile_symbol(token: &Box<dyn Token>) -> Result<&Symbol, ParseError> {
     if !matches!(token.token(), TokenType::Symbol) {
         return Err(String::from("Expected Symbol token"));
     }
     let s = token.as_any().downcast_ref::<Symbol>().unwrap();
-    if !(s.value == expected) {
-        return Err(format!("Expected {}", expected));
-    }
     Ok(s)
 }
 
@@ -282,20 +349,28 @@ fn compile_class(
     ctx.class_names.push(name.value.clone()); // store name in type table
     class.name = name.clone();
     current_idx += 1;
-    let open_brace = compile_symbol(&tokens.list[current_idx], '{')?;
-    class.begin_symbol = open_brace.clone();
+    let open_brace = compile_symbol(&tokens.list[current_idx])?;
+    if open_brace.value != '{' {
+        return Err(String::from("Expected '{'"));
+    }
+    class.begin_symbol = open_brace.to_owned();
     current_idx += 1;
     loop {
         // Check for classVarDec, subroutineDec, or close brace until the end
         let t = &tokens.list[current_idx];
         match t.token() {
             TokenType::Symbol => {
-                let close_brace = compile_symbol(t, '}');
+                let close_brace = compile_symbol(t);
                 // We ignore any errors for now
                 if close_brace.is_ok() {
-                    class.end_symbol = close_brace.unwrap().clone();
-                    // Once we reach close brace we exit
-                    break;
+                    let s = close_brace.unwrap();
+                    if s.value == '}' {
+                        class.end_symbol = s.clone();
+                        // Once we reach close brace we exit
+                        break;
+                    }
+                    // We ignore invalid symbols for now
+                    // return Err(String::from("Expected '}'"));
                 }
                 current_idx += 1;
             }
@@ -310,7 +385,7 @@ fn compile_class(
                     }
                     tokenizer::CONSTRUCTOR | tokenizer::FUNCTION | tokenizer::METHOD => {
                         let mut sd = SubroutineDec::new(keyword.clone());
-                        current_idx = compile_subroutinedec(&mut sd, tokens, current_idx + 1)?;
+                        current_idx = compile_subroutinedec(ctx, &mut sd, tokens, current_idx + 1)?;
                         class.add_child(Box::new(sd))?;
                     }
                     _ => {
