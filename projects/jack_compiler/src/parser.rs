@@ -1,6 +1,3 @@
-use std::ops::Deref;
-use std::thread::current;
-
 use super::tokenizer;
 use super::tokenizer::{
     generate_token_list, Identifier, Keyword, KeywordType, Symbol, Token, TokenList, TokenType,
@@ -15,27 +12,6 @@ type SerializeError = String;
 pub trait Node {
     /// Serialize node at the specified indent level
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
-    /// Add child node.
-    /// If node cannot add a child an error is returned
-    fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError>;
-}
-
-struct Root {
-    children: Vec<Box<dyn Node>>,
-}
-
-impl Node for Root {
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        for n in &self.children {
-            // Root class is the root so all children are at level 0 indent
-            n.serialize(output, 0)?;
-        }
-        Ok(())
-    }
-
-    fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
-        Ok(self.children.push(node))
-    }
 }
 
 struct Context {
@@ -43,6 +19,7 @@ struct Context {
     /// Used to resolve types
     class_names: Vec<String>,
 }
+
 impl Context {
     fn new() -> Context {
         Context {
@@ -60,14 +37,18 @@ struct Class {
 }
 
 impl Class {
-    fn new(prefix: Keyword) -> Class {
+    fn new() -> Class {
         Class {
-            prefix: prefix,
+            prefix: Keyword::new(),
             name: Identifier::new(),
             begin_symbol: Symbol::new(),
             end_symbol: Symbol::new(),
             children: Vec::new(),
         }
+    }
+
+    fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
+        Ok(self.children.push(node))
     }
 }
 
@@ -88,10 +69,6 @@ impl Node for Class {
         self.end_symbol.serialize(output, next_level)?;
         output.push_str(&end_tag);
         Ok(())
-    }
-
-    fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
-        Ok(self.children.push(node))
     }
 }
 
@@ -155,21 +132,24 @@ impl Node for ClassVarDec {
         output.push_str(&end_tag);
         Ok(())
     }
-    fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
-        Err(String::from("Cannot add children directly"))
-    }
 }
 
 struct SubroutineDec {
     prefix: Keyword,
-    children: Vec<Box<dyn Node>>,
+    return_type: Option<Box<dyn Token>>, // var_type maybe a Keyword or an Identifier
+    name: Identifier,
+    start_param_list: Symbol,
+    end_param_list: Symbol,
 }
 
 impl SubroutineDec {
     fn new(prefix: Keyword) -> SubroutineDec {
         SubroutineDec {
             prefix: prefix,
-            children: Vec::new(),
+            return_type: None,
+            name: Identifier::new(),
+            start_param_list: Symbol::new(),
+            end_param_list: Symbol::new(),
         }
     }
 }
@@ -183,14 +163,16 @@ impl Node for SubroutineDec {
         output.push_str(&start_tag);
         let next_level = indent_level + 1;
         self.prefix.serialize(output, next_level)?;
-        // for c in &self.children {
-        //     c.serialize(output, next_level);
-        // }
+        // self.return_type
+        //     .as_ref()
+        //     .unwrap()
+        //     .serialize(output, next_level)?;
+        self.name.serialize(output, next_level)?;
+        self.start_param_list.serialize(output, next_level)?;
+        self.end_param_list.serialize(output, next_level)?;
+        // TODO: add subroutine body
         output.push_str(&end_tag);
         Ok(())
-    }
-    fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
-        Ok(self.children.push(node))
     }
 }
 
@@ -346,14 +328,14 @@ fn compile_class(
     Ok(current_idx)
 }
 
-/// Convert token list to a compiled tree
-fn parse_token_list(
-    ctx: &mut Context,
-    parent: &mut dyn Node,
-    tokens: &TokenList,
-    token_index: usize,
-) -> Result<usize, ParseError> {
-    let mut current_index = token_index;
+/// Parse specified file and generate an internal tree representation
+pub fn parse_file(
+    file_reader: &mut std::io::BufReader<std::fs::File>,
+) -> Result<Box<dyn Node>, ParseError> {
+    let tokens = generate_token_list(file_reader);
+    let mut ctx = Context::new();
+    let mut current_index = 0;
+    let mut class = Class::new();
     loop {
         if current_index >= tokens.list.len() {
             // Exit when we finished processing all tokens
@@ -366,9 +348,9 @@ fn parse_token_list(
                 // println!("keyword: {:?}", keyword);
                 match keyword.keyword() {
                     KeywordType::Class => {
-                        let mut class = Class::new(keyword.clone());
-                        current_index = compile_class(ctx, &mut class, tokens, current_index + 1)?;
-                        parent.add_child(Box::new(class))?;
+                        class.prefix = keyword.clone();
+                        current_index =
+                            compile_class(&mut ctx, &mut class, &tokens, current_index + 1)?;
                     }
                     _other => {
                         current_index += 1;
@@ -389,18 +371,5 @@ fn parse_token_list(
             }
         }
     }
-    Ok(current_index)
-}
-
-/// Generate parsed tree from given file reader
-pub fn generate_tree(
-    file_reader: &mut std::io::BufReader<std::fs::File>,
-) -> Result<Box<dyn Node>, String> {
-    let tokens = generate_token_list(file_reader);
-    let mut root = Root {
-        children: Vec::new(),
-    };
-    let mut ctx = Context::new();
-    parse_token_list(&mut ctx, &mut root, &tokens, 0)?;
-    Ok(Box::new(root))
+    Ok(Box::new(class))
 }

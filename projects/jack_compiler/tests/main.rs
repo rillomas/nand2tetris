@@ -1,4 +1,8 @@
-use jack_compiler::{generate_ioset, get_origin_name, parser, tokenizer};
+use jack_compiler::{
+    generate_ioset, get_origin_name,
+    parser::{self, Node},
+    tokenizer,
+};
 use std::path::PathBuf;
 
 const TEST_DIR: &str = "tests";
@@ -35,12 +39,12 @@ fn test_parser(root: &PathBuf, dir: &str) -> Result<(), std::io::Error> {
         let mut golden_file_path = io.input_file.clone();
         let golden_name = format!("{}.xml", origin);
         golden_file_path.set_file_name(&golden_name);
-        let tree = parser::generate_tree(&mut io.input).unwrap();
+        let tree = parser::parse_file(&mut io.input).unwrap();
 
         // Read Golden XML results and compare with results
         let golden_xml = std::fs::read_to_string(golden_file_path).unwrap();
         let mut xml = String::from("");
-        tree.serialize(&mut xml, 0);
+        tree.serialize(&mut xml, 0).unwrap();
         println!("{} vs {}", &golden_name, io.input_file.display());
         assert_eq!(golden_xml, xml);
     }
