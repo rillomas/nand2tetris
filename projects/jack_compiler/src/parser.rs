@@ -6,8 +6,19 @@ use super::tokenizer::{
 
 const CLASS_VAR_DEC: &'static str = "classVarDec";
 const SUBROUTINE_DEC: &'static str = "subroutineDec";
-type ParseError = String;
 type SerializeError = String;
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Got unexpected token type: {0:?}")]
+    UnexpectedToken(TokenType),
+    #[error("Got unexpected keyword: {0}")]
+    UnexpectedKeyword(String),
+    #[error("Got unknown type: {0}")]
+    UnknownType(String),
+    #[error("Got unexpected symbol: {0}")]
+    UnexpectedSymbol(char),
+}
 
 pub trait Node {
     /// Serialize node at the specified indent level
@@ -47,7 +58,7 @@ impl Class {
         }
     }
 
-    fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), ParseError> {
+    fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), Error> {
         Ok(self.children.push(node))
     }
 }
@@ -181,7 +192,7 @@ fn compile_subroutinedec(
     target: &mut SubroutineDec,
     tokens: &TokenList,
     token_index: usize,
-) -> Result<usize, ParseError> {
+) -> Result<usize, Error> {
     let mut current_idx = token_index;
     target.return_type = compile_return_type(ctx, &tokens.list[current_idx])?;
     current_idx += 1;
@@ -189,7 +200,7 @@ fn compile_subroutinedec(
     current_idx += 1;
     let s = compile_symbol(&tokens.list[current_idx])?.to_owned();
     if s.value != '(' {
-        return Err(String::from("Expected '('"));
+        return Err(Error::UnexpectedSymbol(s.value));
     }
     target.start_param_list = s;
     current_idx += 1;
@@ -235,31 +246,28 @@ fn compile_subroutinedec(
     Ok(current_idx)
 }
 
-fn compile_type(ctx: &mut Context, token: &Box<dyn Token>) -> Result<Box<dyn Token>, ParseError> {
+fn compile_type(ctx: &mut Context, token: &Box<dyn Token>) -> Result<Box<dyn Token>, Error> {
     match token.token() {
         TokenType::Keyword => {
             let word = token.as_any().downcast_ref::<Keyword>().unwrap();
             match word.value.as_str() {
                 tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL => Ok(Box::new(word.to_owned())),
-                _other => Err(format!("Got unexpected keyword: {}", _other)),
+                _other => Err(Error::UnexpectedKeyword(_other.to_string())),
             }
         }
         TokenType::Identifier => {
             let id = token.as_any().downcast_ref::<Identifier>().unwrap();
             if !ctx.class_names.contains(&id.value) {
-                return Err(format!("Got unknown type name: {}", id.value));
+                return Err(Error::UnknownType(id.value.clone()));
             }
             Ok(Box::new(id.to_owned()))
         }
-        _other => Err(format!("Got unexpected token type: {:?}", _other)),
+        _other => Err(Error::UnexpectedToken(_other)),
     }
 }
 
 /// Compile return type of a subroutine
-fn compile_return_type(
-    ctx: &mut Context,
-    token: &Box<dyn Token>,
-) -> Result<Box<dyn Token>, ParseError> {
+fn compile_return_type(ctx: &mut Context, token: &Box<dyn Token>) -> Result<Box<dyn Token>, Error> {
     match token.token() {
         TokenType::Keyword => {
             let word = token.as_any().downcast_ref::<Keyword>().unwrap();
@@ -267,17 +275,17 @@ fn compile_return_type(
                 tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL | tokenizer::VOID => {
                     Ok(Box::new(word.to_owned()))
                 }
-                _other => Err(format!("Got unexpected keyword: {}", _other)),
+                _other => Err(Error::UnexpectedKeyword(_other.to_string())),
             }
         }
         TokenType::Identifier => {
             let id = token.as_any().downcast_ref::<Identifier>().unwrap();
             if !ctx.class_names.contains(&id.value) {
-                return Err(format!("Got unknown type name: {}", id.value));
+                return Err(Error::UnknownType(id.value.clone()));
             }
             Ok(Box::new(id.to_owned()))
         }
-        _other => Err(format!("Got unexpected token type: {:?}", _other)),
+        _other => Err(Error::UnexpectedToken(_other)),
     }
 }
 fn compile_classvardec(
@@ -285,7 +293,7 @@ fn compile_classvardec(
     target: &mut ClassVarDec,
     tokens: &TokenList,
     token_index: usize,
-) -> Result<usize, ParseError> {
+) -> Result<usize, Error> {
     let mut current_idx = token_index;
     target.var_type = compile_type(ctx, &tokens.list[current_idx])?;
     current_idx += 1;
@@ -302,7 +310,7 @@ fn compile_classvardec(
                         break;
                     }
                     _other => {
-                        return Err(format!("Got unexpected symbol: {}", s.value));
+                        return Err(Error::UnexpectedSymbol(s.value));
                     }
                 }
             }
@@ -311,7 +319,7 @@ fn compile_classvardec(
                 target.var_names.push(i.to_owned());
             }
             _other => {
-                return Err(format!("Got unexpected token type: {:?}", _other));
+                return Err(Error::UnexpectedToken(_other));
             }
         }
         current_idx += 1;
@@ -319,17 +327,17 @@ fn compile_classvardec(
     Ok(current_idx)
 }
 
-fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, ParseError> {
+fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, Error> {
     if !matches!(token.token(), TokenType::Identifier) {
-        return Err(String::from("Expected Identifier token"));
+        return Err(Error::UnexpectedToken(token.token()));
     }
     let id = token.as_any().downcast_ref::<Identifier>().unwrap();
     Ok(id)
 }
 
-fn compile_symbol(token: &Box<dyn Token>) -> Result<&Symbol, ParseError> {
+fn compile_symbol(token: &Box<dyn Token>) -> Result<&Symbol, Error> {
     if !matches!(token.token(), TokenType::Symbol) {
-        return Err(String::from("Expected Symbol token"));
+        return Err(Error::UnexpectedToken(token.token()));
     }
     let s = token.as_any().downcast_ref::<Symbol>().unwrap();
     Ok(s)
@@ -341,7 +349,7 @@ fn compile_class(
     class: &mut Class,
     tokens: &TokenList,
     token_index: usize,
-) -> Result<usize, ParseError> {
+) -> Result<usize, Error> {
     // Check tokens from the head to see if they are valid class tokens
     let mut current_idx = token_index;
     let name_token = &tokens.list[current_idx];
@@ -351,7 +359,7 @@ fn compile_class(
     current_idx += 1;
     let open_brace = compile_symbol(&tokens.list[current_idx])?;
     if open_brace.value != '{' {
-        return Err(String::from("Expected '{'"));
+        return Err(Error::UnexpectedSymbol(open_brace.value));
     }
     class.begin_symbol = open_brace.to_owned();
     current_idx += 1;
@@ -406,7 +414,7 @@ fn compile_class(
 /// Parse specified file and generate an internal tree representation
 pub fn parse_file(
     file_reader: &mut std::io::BufReader<std::fs::File>,
-) -> Result<Box<dyn Node>, ParseError> {
+) -> Result<Box<dyn Node>, Error> {
     let tokens = generate_token_list(file_reader);
     let mut ctx = Context::new();
     let mut current_index = 0;
