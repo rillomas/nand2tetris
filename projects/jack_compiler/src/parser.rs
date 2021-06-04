@@ -210,44 +210,59 @@ fn compile_subroutinedec(
     target.start_param_list = s;
     current_idx += 1;
     // compile param list
+    println!("compiling param list");
+    let mut got_param_type = false;
     loop {
-        // compile param type and name once
-        target
-            .param_type
-            .push(compile_type(ctx, &tokens.list[current_idx])?);
-        current_idx += 1;
-        target
-            .param_name
-            .push(compile_identifier(&tokens.list[current_idx])?.to_owned());
-        current_idx += 1;
-        break;
-        // If we have a comma next we compile another round of params
-        // If we have a semicolon param list is finished
-        // let tk = &tokens.list[current_idx];
-        // match tk.token() {
-        //     TokenType::Symbol => {
-        //         let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
-        //         match s.value {
-        //             ',' => target.param_delimiter.push(s.to_owned()),
-        //             ')' => {
-        //                 // We got end of node symbol so we store it and go next
-        //                 target.end_param_list = s.to_owned();
-        //                 break;
-        //             }
-        //             _other => {
-        //                 return Err(format!("Got unexpected symbol: {}", s.value));
-        //             }
-        //         }
-        //     }
-        //     TokenType::Identifier => {
-        //         let i = tk.as_any().downcast_ref::<Identifier>().unwrap();
-        //         target.var_names.push(i.to_owned());
-        //     }
-        //     _other => {
-        //         return Err(format!("Got unexpected token type: {:?}", _other));
-        //     }
-        // }
+        let tk = &tokens.list[current_idx];
+        match tk.token() {
+            TokenType::Symbol => {
+                let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+                match s.value {
+                    ')' => {
+                        // We got end of param list symbol so we store it and go next
+                        target.end_param_list = s.to_owned();
+                        current_idx += 1;
+                        break;
+                    }
+                    ',' => {
+                        // We got param delimiter
+                        target.param_delimiter.push(s.to_owned());
+                        current_idx += 1;
+                    }
+                    _other => {
+                        return Err(Error::UnexpectedSymbol(_other));
+                    }
+                }
+            }
+            TokenType::Keyword => {
+                // should be a builtin type
+                target.param_type.push(compile_type(ctx, tk)?);
+                got_param_type = true;
+                current_idx += 1;
+            }
+            TokenType::Identifier => {
+                if got_param_type {
+                    // should be name of param
+                    target.param_name.push(compile_identifier(tk)?.to_owned());
+                    got_param_type = false
+                } else {
+                    // should be a class name
+                    target.param_type.push(compile_type(ctx, tk)?);
+                    got_param_type = true;
+                    current_idx += 1;
+                }
+            }
+            _other => {
+                return Err(Error::UnexpectedToken {
+                    token: _other,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                });
+            }
+        }
     }
+    println!("compiled SubroutineDec");
     Ok(current_idx)
 }
 
