@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use super::tokenizer;
 use super::tokenizer::{
     generate_token_list, Identifier, Keyword, KeywordType, Symbol, Token, TokenList, TokenType,
@@ -199,7 +201,7 @@ fn compile_subroutinedec(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.return_type = compile_return_type(ctx, &tokens.list[current_idx])?;
+    target.return_type = compile_return_type(ctx, &tokens.list[current_idx])?.boxed_clone();
     current_idx += 1;
     target.name = compile_identifier(&tokens.list[current_idx])?.to_owned();
     current_idx += 1;
@@ -236,7 +238,7 @@ fn compile_subroutinedec(
             }
             TokenType::Keyword => {
                 // should be a builtin type
-                target.param_type.push(compile_type(ctx, tk)?);
+                target.param_type.push(compile_type(ctx, tk)?.boxed_clone());
                 got_param_type = true;
                 current_idx += 1;
             }
@@ -247,7 +249,7 @@ fn compile_subroutinedec(
                     got_param_type = false
                 } else {
                     // should be a class name
-                    target.param_type.push(compile_type(ctx, tk)?);
+                    target.param_type.push(compile_type(ctx, tk)?.boxed_clone());
                     got_param_type = true;
                     current_idx += 1;
                 }
@@ -266,12 +268,12 @@ fn compile_subroutinedec(
     Ok(current_idx)
 }
 
-fn compile_type(ctx: &mut Context, token: &Box<dyn Token>) -> Result<Box<dyn Token>, Error> {
+fn compile_type<'a>(ctx: &mut Context, token: &'a Box<dyn Token>) -> Result<&'a dyn Token, Error> {
     match token.token() {
         TokenType::Keyword => {
             let word = token.as_any().downcast_ref::<Keyword>().unwrap();
             match word.value.as_str() {
-                tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL => Ok(Box::new(word.to_owned())),
+                tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL => Ok(word),
                 _other => Err(Error::UnexpectedKeyword(_other.to_string())),
             }
         }
@@ -280,7 +282,7 @@ fn compile_type(ctx: &mut Context, token: &Box<dyn Token>) -> Result<Box<dyn Tok
             if !ctx.class_names.contains(&id.value) {
                 return Err(Error::UnknownType(id.value.clone()));
             }
-            Ok(Box::new(id.to_owned()))
+            Ok(id)
         }
         _other => Err(Error::UnexpectedToken {
             token: _other,
@@ -292,14 +294,15 @@ fn compile_type(ctx: &mut Context, token: &Box<dyn Token>) -> Result<Box<dyn Tok
 }
 
 /// Compile return type of a subroutine
-fn compile_return_type(ctx: &mut Context, token: &Box<dyn Token>) -> Result<Box<dyn Token>, Error> {
+fn compile_return_type<'a>(
+    ctx: &mut Context,
+    token: &'a Box<dyn Token>,
+) -> Result<&'a dyn Token, Error> {
     match token.token() {
         TokenType::Keyword => {
             let word = token.as_any().downcast_ref::<Keyword>().unwrap();
             match word.value.as_str() {
-                tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL | tokenizer::VOID => {
-                    Ok(Box::new(word.to_owned()))
-                }
+                tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL | tokenizer::VOID => Ok(word),
                 _other => Err(Error::UnexpectedKeyword(_other.to_string())),
             }
         }
@@ -308,7 +311,7 @@ fn compile_return_type(ctx: &mut Context, token: &Box<dyn Token>) -> Result<Box<
             if !ctx.class_names.contains(&id.value) {
                 return Err(Error::UnknownType(id.value.clone()));
             }
-            Ok(Box::new(id.to_owned()))
+            Ok(id)
         }
         _other => Err(Error::UnexpectedToken {
             token: _other,
@@ -325,7 +328,7 @@ fn compile_classvardec(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.var_type = compile_type(ctx, &tokens.list[current_idx])?;
+    target.var_type = compile_type(ctx, &tokens.list[current_idx])?.boxed_clone();
     current_idx += 1;
     loop {
         let tk = &tokens.list[current_idx];
@@ -414,7 +417,7 @@ fn compile_class(
         match t.token() {
             TokenType::Symbol => {
                 let close_brace = compile_symbol(t);
-                // We ignore any errors for now
+                // We ignore any errors for now because we want to parse as much as possible
                 if close_brace.is_ok() {
                     let s = close_brace.unwrap();
                     if s.value == '}' {

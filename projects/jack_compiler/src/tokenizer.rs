@@ -89,6 +89,10 @@ pub trait Token: std::fmt::Debug {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
     /// Used for downcasting tokens
     fn as_any(&self) -> &dyn Any;
+    /// Create a boxed clone of the token itself.
+    /// We have this interface since Clone trait cannot be required for a trait,
+    /// and there are cases where we still want to clone token instances
+    fn boxed_clone(&self) -> Box<dyn Token>;
 }
 
 #[derive(Debug, Clone)]
@@ -157,6 +161,10 @@ impl Token for Keyword {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn boxed_clone(&self) -> Box<dyn Token> {
+        Box::new(self.clone())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -199,6 +207,10 @@ impl Token for Symbol {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn boxed_clone(&self) -> Box<dyn Token> {
+        Box::new(self.clone())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -229,9 +241,13 @@ impl Token for Identifier {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn boxed_clone(&self) -> Box<dyn Token> {
+        Box::new(self.clone())
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IntegerConstant {
     value: u16,
 }
@@ -252,9 +268,13 @@ impl Token for IntegerConstant {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn boxed_clone(&self) -> Box<dyn Token> {
+        Box::new(self.clone())
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StringConstant {
     value: String,
 }
@@ -274,6 +294,10 @@ impl Token for StringConstant {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn boxed_clone(&self) -> Box<dyn Token> {
+        Box::new(self.clone())
     }
 }
 
