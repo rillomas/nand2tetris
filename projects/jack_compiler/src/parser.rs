@@ -10,8 +10,13 @@ type SerializeError = String;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Got unexpected token type: {0:?}")]
-    UnexpectedToken(TokenType),
+    #[error("{file} {line}:{column} Got unexpected token type: {token:?}")]
+    UnexpectedToken {
+        token: TokenType,
+        file: &'static str,
+        line: u32,
+        column: u32,
+    },
     #[error("Got unexpected keyword: {0}")]
     UnexpectedKeyword(String),
     #[error("Got unknown type: {0}")]
@@ -262,7 +267,12 @@ fn compile_type(ctx: &mut Context, token: &Box<dyn Token>) -> Result<Box<dyn Tok
             }
             Ok(Box::new(id.to_owned()))
         }
-        _other => Err(Error::UnexpectedToken(_other)),
+        _other => Err(Error::UnexpectedToken {
+            token: _other,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        }),
     }
 }
 
@@ -285,7 +295,12 @@ fn compile_return_type(ctx: &mut Context, token: &Box<dyn Token>) -> Result<Box<
             }
             Ok(Box::new(id.to_owned()))
         }
-        _other => Err(Error::UnexpectedToken(_other)),
+        _other => Err(Error::UnexpectedToken {
+            token: _other,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        }),
     }
 }
 fn compile_classvardec(
@@ -319,7 +334,12 @@ fn compile_classvardec(
                 target.var_names.push(i.to_owned());
             }
             _other => {
-                return Err(Error::UnexpectedToken(_other));
+                return Err(Error::UnexpectedToken {
+                    token: _other,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                });
             }
         }
         current_idx += 1;
@@ -329,7 +349,12 @@ fn compile_classvardec(
 
 fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, Error> {
     if !matches!(token.token(), TokenType::Identifier) {
-        return Err(Error::UnexpectedToken(token.token()));
+        return Err(Error::UnexpectedToken {
+            token: token.token(),
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
     }
     let id = token.as_any().downcast_ref::<Identifier>().unwrap();
     Ok(id)
@@ -337,7 +362,12 @@ fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, Error> {
 
 fn compile_symbol(token: &Box<dyn Token>) -> Result<&Symbol, Error> {
     if !matches!(token.token(), TokenType::Symbol) {
-        return Err(Error::UnexpectedToken(token.token()));
+        return Err(Error::UnexpectedToken {
+            token: token.token(),
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
     }
     let s = token.as_any().downcast_ref::<Symbol>().unwrap();
     Ok(s)
