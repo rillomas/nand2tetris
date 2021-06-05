@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use super::tokenizer;
 use super::tokenizer::{
     generate_token_list, Identifier, Keyword, KeywordType, Symbol, Token, TokenList, TokenType,
@@ -8,6 +6,7 @@ use super::tokenizer::{
 
 const CLASS_VAR_DEC: &'static str = "classVarDec";
 const SUBROUTINE_DEC: &'static str = "subroutineDec";
+const PARAMETER_LIST: &'static str = "parameterList";
 type SerializeError = String;
 
 #[derive(thiserror::Error, Debug)]
@@ -153,11 +152,7 @@ struct SubroutineDec {
     prefix: Keyword,
     return_type: Box<dyn Token>, // var_type is a Keyword or an Identifier
     name: Identifier,
-    start_param_list: Symbol,
-    param_type: Vec<Box<dyn Token>>, // param_type is a Keyword or an Identifier
-    param_name: Vec<Identifier>,
-    param_delimiter: Vec<Symbol>,
-    end_param_list: Symbol,
+    param_list: ParameterList,
 }
 
 impl SubroutineDec {
@@ -166,11 +161,7 @@ impl SubroutineDec {
             prefix: prefix,
             return_type: Box::new(Keyword::new()),
             name: Identifier::new(),
-            start_param_list: Symbol::new(),
-            param_type: Vec::new(),
-            param_name: Vec::new(),
-            param_delimiter: Vec::new(),
-            end_param_list: Symbol::new(),
+            param_list: ParameterList::new(),
         }
     }
 }
@@ -186,33 +177,81 @@ impl Node for SubroutineDec {
         self.prefix.serialize(output, next_level)?;
         self.return_type.serialize(output, next_level)?;
         self.name.serialize(output, next_level)?;
-        self.start_param_list.serialize(output, next_level)?;
-        self.end_param_list.serialize(output, next_level)?;
+        self.param_list.serialize(output, next_level)?;
         // TODO: add subroutine body
         output.push_str(&end_tag);
         Ok(())
     }
 }
 
-fn compile_subroutinedec(
+struct ParameterList {
+    start_param_list: Symbol,
+    param_type: Vec<Box<dyn Token>>, // param_type is a Keyword or an Identifier
+    name: Vec<Identifier>,
+    delimiter: Vec<Symbol>,
+    end_param_list: Symbol,
+}
+
+impl ParameterList {
+    fn new() -> ParameterList {
+        ParameterList {
+            start_param_list: Symbol::new(),
+            param_type: Vec::new(),
+            name: Vec::new(),
+            delimiter: Vec::new(),
+            end_param_list: Symbol::new(),
+        }
+    }
+}
+
+impl Node for ParameterList {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let param_len = self.param_type.len();
+        let has_param = param_len > 0;
+        assert_eq!(param_len, self.name.len());
+        if has_param {
+            // delimiter is in between each param
+            assert_eq!(self.param_type.len() - 1, self.delimiter.len());
+        } else {
+            assert_eq!(0, self.delimiter.len());
+        }
+        self.start_param_list.serialize(output, indent_level)?;
+        let label = PARAMETER_LIST;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        let next_level = indent_level + 1;
+        output.push_str(&start_tag);
+        if has_param {
+            self.param_type[0].serialize(output, next_level)?;
+            self.name[0].serialize(output, next_level)?;
+            for i in 1..param_len {
+                // we have one less delimiter for each type/param name pair
+                self.delimiter[i - 1].serialize(output, next_level)?;
+                self.param_type[i].serialize(output, next_level)?;
+                self.name[i].serialize(output, next_level)?;
+            }
+        }
+        output.push_str(&end_tag);
+        self.end_param_list.serialize(output, indent_level)?;
+        Ok(())
+    }
+}
+fn compile_parameter_list(
     ctx: &mut Context,
-    target: &mut SubroutineDec,
+    target: &mut ParameterList,
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.return_type = compile_return_type(ctx, &tokens.list[current_idx])?.boxed_clone();
-    current_idx += 1;
-    target.name = compile_identifier(&tokens.list[current_idx])?.to_owned();
-    current_idx += 1;
     let s = compile_symbol(&tokens.list[current_idx])?.to_owned();
     if s.value != '(' {
         return Err(Error::UnexpectedSymbol(s.value));
     }
     target.start_param_list = s;
     current_idx += 1;
-    // compile param list
-    println!("compiling param list");
+    // This flag becomes true when we found a type for a parameter.
+    // We use this flag to differentiate an identifier as a class name or param name
     let mut got_param_type = false;
     loop {
         let tk = &tokens.list[current_idx];
@@ -228,7 +267,7 @@ fn compile_subroutinedec(
                     }
                     ',' => {
                         // We got param delimiter
-                        target.param_delimiter.push(s.to_owned());
+                        target.delimiter.push(s.to_owned());
                         current_idx += 1;
                     }
                     _other => {
@@ -245,14 +284,14 @@ fn compile_subroutinedec(
             TokenType::Identifier => {
                 if got_param_type {
                     // should be name of param
-                    target.param_name.push(compile_identifier(tk)?.to_owned());
+                    target.name.push(compile_identifier(tk)?.to_owned());
                     got_param_type = false
                 } else {
                     // should be a class name
                     target.param_type.push(compile_type(ctx, tk)?.boxed_clone());
                     got_param_type = true;
-                    current_idx += 1;
                 }
+                current_idx += 1;
             }
             _other => {
                 return Err(Error::UnexpectedToken {
@@ -264,6 +303,20 @@ fn compile_subroutinedec(
             }
         }
     }
+    Ok(current_idx)
+}
+
+fn compile_subroutinedec(
+    ctx: &mut Context,
+    target: &mut SubroutineDec,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    let mut current_idx = token_index;
+    target.return_type = compile_return_type(ctx, &tokens.list[current_idx])?.boxed_clone();
+    current_idx += 1;
+    target.name = compile_identifier(&tokens.list[current_idx])?.to_owned();
+    current_idx = compile_parameter_list(ctx, &mut target.param_list, tokens, current_idx + 1)?;
     println!("compiled SubroutineDec");
     Ok(current_idx)
 }
