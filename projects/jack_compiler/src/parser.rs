@@ -6,7 +6,10 @@ use super::tokenizer::{
 
 const CLASS_VAR_DEC: &'static str = "classVarDec";
 const SUBROUTINE_DEC: &'static str = "subroutineDec";
+const SUBROUTINE_BODY: &'static str = "subroutineBody";
 const PARAMETER_LIST: &'static str = "parameterList";
+const VAR_DEC: &'static str = "varDec";
+const STATEMENTS: &'static str = "statements";
 type SerializeError = String;
 
 #[derive(thiserror::Error, Debug)]
@@ -150,9 +153,10 @@ impl Node for ClassVarDec {
 
 struct SubroutineDec {
     prefix: Keyword,
-    return_type: Box<dyn Token>, // var_type is a Keyword or an Identifier
+    return_type: Box<dyn Token>, // return_type is a Keyword or an Identifier
     name: Identifier,
     param_list: ParameterList,
+    body: SubroutineBody,
 }
 
 impl SubroutineDec {
@@ -162,6 +166,7 @@ impl SubroutineDec {
             return_type: Box::new(Keyword::new()),
             name: Identifier::new(),
             param_list: ParameterList::new(),
+            body: SubroutineBody::new(),
         }
     }
 }
@@ -178,28 +183,28 @@ impl Node for SubroutineDec {
         self.return_type.serialize(output, next_level)?;
         self.name.serialize(output, next_level)?;
         self.param_list.serialize(output, next_level)?;
-        // TODO: add subroutine body
+        self.body.serialize(output, next_level)?;
         output.push_str(&end_tag);
         Ok(())
     }
 }
 
 struct ParameterList {
-    start_param_list: Symbol,
+    start: Symbol,
     param_type: Vec<Box<dyn Token>>, // param_type is a Keyword or an Identifier
     name: Vec<Identifier>,
     delimiter: Vec<Symbol>,
-    end_param_list: Symbol,
+    end: Symbol,
 }
 
 impl ParameterList {
     fn new() -> ParameterList {
         ParameterList {
-            start_param_list: Symbol::new(),
+            start: Symbol::new(),
             param_type: Vec::new(),
             name: Vec::new(),
             delimiter: Vec::new(),
-            end_param_list: Symbol::new(),
+            end: Symbol::new(),
         }
     }
 }
@@ -215,7 +220,7 @@ impl Node for ParameterList {
         } else {
             assert_eq!(0, self.delimiter.len());
         }
-        self.start_param_list.serialize(output, indent_level)?;
+        self.start.serialize(output, indent_level)?;
         let label = PARAMETER_LIST;
         let indent = INDENT_STR.repeat(indent_level);
         let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
@@ -233,7 +238,7 @@ impl Node for ParameterList {
             }
         }
         output.push_str(&end_tag);
-        self.end_param_list.serialize(output, indent_level)?;
+        self.end.serialize(output, indent_level)?;
         Ok(())
     }
 }
@@ -248,7 +253,7 @@ fn compile_parameter_list(
     if s.value != '(' {
         return Err(Error::UnexpectedSymbol(s.value));
     }
-    target.start_param_list = s;
+    target.start = s;
     current_idx += 1;
     // This flag becomes true when we found a type for a parameter.
     // We use this flag to differentiate an identifier as a class name or param name
@@ -261,7 +266,7 @@ fn compile_parameter_list(
                 match s.value {
                     ')' => {
                         // We got end of param list symbol so we store it and go next
-                        target.end_param_list = s.to_owned();
+                        target.end = s.to_owned();
                         current_idx += 1;
                         break;
                     }
@@ -304,6 +309,106 @@ fn compile_parameter_list(
         }
     }
     Ok(current_idx)
+}
+
+struct SubroutineBody {
+    start: Symbol,
+    variables: VarDec,
+    statements: Statements,
+    end: Symbol,
+}
+
+impl SubroutineBody {
+    fn new() -> SubroutineBody {
+        SubroutineBody {
+            start: Symbol::new(),
+            variables: VarDec::new(),
+            statements: Statements::new(),
+            end: Symbol::new(),
+        }
+    }
+}
+
+impl Node for SubroutineBody {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = SUBROUTINE_BODY;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.start.serialize(output, next_level)?;
+        if self.variables.has_content() {
+            self.variables.serialize(output, next_level)?;
+        }
+        self.statements.serialize(output, next_level)?;
+        self.end.serialize(output, next_level)?;
+        output.push_str(&end_tag);
+        Ok(())
+    }
+}
+
+struct VarDec {
+    prefix: Keyword,          // Should be 'var'
+    var_type: Box<dyn Token>, // Should be a Keyword or an Identifier
+    names: Vec<Identifier>,   // List of names of variables
+    delimiter: Vec<Symbol>,   // Delimiters between variable names
+    end: Symbol,
+}
+
+impl VarDec {
+    fn new() -> VarDec {
+        VarDec {
+            prefix: Keyword::new(),
+            var_type: Box::new(Keyword::new()),
+            names: Vec::new(),
+            delimiter: Vec::new(),
+            end: Symbol::new(),
+        }
+    }
+
+    /// Returns true if there is any content to serialize
+    fn has_content(&self) -> bool {
+        self.names.len() > 0
+    }
+}
+
+impl Node for VarDec {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let var_num = self.names.len();
+        assert!(var_num > 0);
+        assert_eq!(self.delimiter.len(), var_num - 1);
+        let label = VAR_DEC;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.prefix.serialize(output, next_level)?;
+        self.var_type.serialize(output, next_level)?;
+        self.names[0].serialize(output, next_level)?;
+        for i in 1..var_num {
+            self.delimiter[i - 1].serialize(output, next_level)?;
+            self.names[i].serialize(output, next_level)?;
+        }
+        self.end.serialize(output, next_level)?;
+        output.push_str(&end_tag);
+        Ok(())
+    }
+}
+
+struct Statements {}
+
+impl Statements {
+    fn new() -> Statements {
+        Statements {}
+    }
+}
+
+impl Node for Statements {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        Ok(())
+    }
 }
 
 fn compile_subroutinedec(
