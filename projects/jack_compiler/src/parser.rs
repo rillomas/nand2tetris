@@ -348,6 +348,63 @@ impl Node for SubroutineBody {
     }
 }
 
+fn compile_subroutine_body(
+    ctx: &mut Context,
+    target: &mut SubroutineBody,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    let mut current_idx = token_index;
+    let s = compile_symbol(&tokens.list[current_idx])?.to_owned();
+    if s.value != '{' {
+        return Err(Error::UnexpectedSymbol(s.value));
+    }
+    target.start = s;
+    current_idx += 1;
+    loop {
+        let tk = &tokens.list[current_idx];
+        match tk.token() {
+            TokenType::Symbol => {
+                let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+                match s.value {
+                    '}' => {
+                        // We got end of subroutine body symbol so we store it and go next
+                        target.end = s.to_owned();
+                        current_idx += 1;
+                        break;
+                    }
+                    _other => {
+                        return Err(Error::UnexpectedSymbol(_other));
+                    }
+                }
+            }
+            TokenType::Keyword => {
+                let k = tk.as_any().downcast_ref::<Keyword>().unwrap();
+                match k.value.as_str() {
+                    tokenizer::VAR => {
+                        // If we get 'var' it means we have a varDec
+                        let mut vd = VarDec::new();
+                        vd.prefix = k.to_owned();
+                        current_idx = compile_var_dec(ctx, &mut vd, tokens, current_idx + 1)?
+                    }
+                    _other => {
+                        return Err(Error::UnexpectedKeyword(_other.to_string()));
+                    }
+                }
+            }
+            _other => {
+                return Err(Error::UnexpectedToken {
+                    token: _other,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                });
+            }
+        }
+    }
+    Ok(current_idx)
+}
+
 struct VarDec {
     prefix: Keyword,          // Should be 'var'
     var_type: Box<dyn Token>, // Should be a Keyword or an Identifier
@@ -397,6 +454,58 @@ impl Node for VarDec {
     }
 }
 
+fn compile_var_dec(
+    ctx: &mut Context,
+    target: &mut VarDec,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    let mut current_idx = token_index;
+    target.var_type = compile_type(ctx, &tokens.list[current_idx])?.boxed_clone();
+    current_idx += 1;
+    target
+        .names
+        .push(compile_identifier(&tokens.list[current_idx])?.to_owned());
+    current_idx += 1;
+    // if next token is delimiter
+    loop {
+        let tk = &tokens.list[current_idx];
+        match tk.token() {
+            TokenType::Symbol => {
+                let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+                match s.value {
+                    ';' => {
+                        // We got end of VarDec symbol so we store it and go next
+                        target.end = s.to_owned();
+                        current_idx += 1;
+                        break;
+                    }
+                    ',' => {
+                        // We found a delimiter so we read another varName
+                        target.delimiter.push(s.to_owned());
+                        current_idx += 1;
+                        target
+                            .names
+                            .push(compile_identifier(&tokens.list[current_idx])?.to_owned());
+                        current_idx += 1;
+                    }
+                    _other => {
+                        return Err(Error::UnexpectedSymbol(_other));
+                    }
+                }
+            }
+            _other => {
+                return Err(Error::UnexpectedToken {
+                    token: _other,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                });
+            }
+        }
+    }
+    Ok(current_idx)
+}
 struct Statements {}
 
 impl Statements {
@@ -411,7 +520,7 @@ impl Node for Statements {
     }
 }
 
-fn compile_subroutinedec(
+fn compile_subroutine_dec(
     ctx: &mut Context,
     target: &mut SubroutineDec,
     tokens: &TokenList,
@@ -422,6 +531,7 @@ fn compile_subroutinedec(
     current_idx += 1;
     target.name = compile_identifier(&tokens.list[current_idx])?.to_owned();
     current_idx = compile_parameter_list(ctx, &mut target.param_list, tokens, current_idx + 1)?;
+    current_idx = compile_subroutine_body(ctx, &mut target.body, tokens, current_idx)?;
     println!("compiled SubroutineDec");
     Ok(current_idx)
 }
@@ -437,9 +547,12 @@ fn compile_type<'a>(ctx: &mut Context, token: &'a Box<dyn Token>) -> Result<&'a 
         }
         TokenType::Identifier => {
             let id = token.as_any().downcast_ref::<Identifier>().unwrap();
-            if !ctx.class_names.contains(&id.value) {
-                return Err(Error::UnknownType(id.value.clone()));
-            }
+            // TODO:
+            // We should check if a given class name is known, but since we don't have a concrete mechanism for that
+            // (and also not required for a parser) we won't be doing it yet.
+            // if !ctx.class_names.contains(&id.value) {
+            //     return Err(Error::UnknownType(id.value.clone()));
+            // }
             Ok(id)
         }
         _other => Err(Error::UnexpectedToken {
@@ -479,7 +592,7 @@ fn compile_return_type<'a>(
         }),
     }
 }
-fn compile_classvardec(
+fn compile_class_var_dec(
     ctx: &mut Context,
     target: &mut ClassVarDec,
     tokens: &TokenList,
@@ -594,12 +707,14 @@ fn compile_class(
                 match keyword.value.as_str() {
                     tokenizer::STATIC | tokenizer::FIELD => {
                         let mut cvd = ClassVarDec::new(keyword.clone());
-                        current_idx = compile_classvardec(ctx, &mut cvd, tokens, current_idx + 1)?;
+                        current_idx =
+                            compile_class_var_dec(ctx, &mut cvd, tokens, current_idx + 1)?;
                         class.add_child(Box::new(cvd))?;
                     }
                     tokenizer::CONSTRUCTOR | tokenizer::FUNCTION | tokenizer::METHOD => {
                         let mut sd = SubroutineDec::new(keyword.clone());
-                        current_idx = compile_subroutinedec(ctx, &mut sd, tokens, current_idx + 1)?;
+                        current_idx =
+                            compile_subroutine_dec(ctx, &mut sd, tokens, current_idx + 1)?;
                         class.add_child(Box::new(sd))?;
                     }
                     _ => {

@@ -110,6 +110,7 @@ pub const VOID: &str = "void";
 pub const INT: &str = "int";
 pub const CHAR: &str = "char";
 pub const BOOL: &str = "boolean";
+pub const VAR: &str = "var";
 
 impl Keyword {
     pub fn new() -> Keyword {
@@ -126,7 +127,7 @@ impl Keyword {
             METHOD => KeywordType::Method,
             FIELD => KeywordType::Field,
             STATIC => KeywordType::Static,
-            "var" => KeywordType::Var,
+            VAR => KeywordType::Var,
             INT => KeywordType::Int,
             CHAR => KeywordType::Char,
             BOOL => KeywordType::Boolean,
@@ -333,7 +334,7 @@ const KEYWORD_LIST: [&str; 21] = [
     METHOD,
     FIELD,
     STATIC,
-    "var",
+    VAR,
     INT,
     CHAR,
     BOOL,
