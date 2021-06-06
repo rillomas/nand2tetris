@@ -111,6 +111,12 @@ pub const INT: &str = "int";
 pub const CHAR: &str = "char";
 pub const BOOL: &str = "boolean";
 pub const VAR: &str = "var";
+pub const LET: &str = "let";
+pub const IF: &str = "if";
+pub const ELSE: &str = "else";
+pub const WHILE: &str = "while";
+pub const DO: &str = "do";
+pub const RETURN: &str = "return";
 
 impl Keyword {
     pub fn new() -> Keyword {
@@ -136,12 +142,12 @@ impl Keyword {
             "false" => KeywordType::False,
             "null" => KeywordType::Null,
             "this" => KeywordType::This,
-            "let" => KeywordType::Let,
-            "do" => KeywordType::Do,
-            "if" => KeywordType::If,
-            "else" => KeywordType::Else,
-            "while" => KeywordType::While,
-            "return" => KeywordType::Return,
+            LET => KeywordType::Let,
+            DO => KeywordType::Do,
+            IF => KeywordType::If,
+            ELSE => KeywordType::Else,
+            WHILE => KeywordType::While,
+            RETURN => KeywordType::Return,
             _ => panic!("Unknowon keyword"),
         }
     }
@@ -343,12 +349,12 @@ const KEYWORD_LIST: [&str; 21] = [
     "false",
     "null",
     "this",
-    "let",
-    "do",
-    "if",
-    "else",
-    "while",
-    "return",
+    LET,
+    DO,
+    IF,
+    ELSE,
+    WHILE,
+    RETURN,
 ];
 
 #[derive(Debug)]

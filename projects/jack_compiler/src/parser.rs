@@ -314,7 +314,7 @@ fn compile_parameter_list(
 struct SubroutineBody {
     start: Symbol,
     variables: VarDec,
-    statements: Statements,
+    statements: StatementList,
     end: Symbol,
 }
 
@@ -323,7 +323,7 @@ impl SubroutineBody {
         SubroutineBody {
             start: Symbol::new(),
             variables: VarDec::new(),
-            statements: Statements::new(),
+            statements: StatementList::new(),
             end: Symbol::new(),
         }
     }
@@ -386,6 +386,16 @@ fn compile_subroutine_body(
                         let mut vd = VarDec::new();
                         vd.prefix = k.to_owned();
                         current_idx = compile_var_dec(ctx, &mut vd, tokens, current_idx + 1)?
+                    }
+                    tokenizer::LET
+                    | tokenizer::IF
+                    | tokenizer::WHILE
+                    | tokenizer::DO
+                    | tokenizer::RETURN => {
+                        // If we get these tokenizers we have a statement
+                        let mut s = StatementList::new();
+                        // We stay on same index (no increment) to read again from the statement keyword.
+                        current_idx = compile_statements(ctx, &mut s, tokens, current_idx)?
                     }
                     _other => {
                         return Err(Error::UnexpectedKeyword(_other.to_string()));
@@ -506,18 +516,125 @@ fn compile_var_dec(
     }
     Ok(current_idx)
 }
-struct Statements {}
 
-impl Statements {
-    fn new() -> Statements {
-        Statements {}
+struct Expression {}
+
+impl Expression {
+    fn new() -> Expression {
+        Expression {}
+    }
+}
+struct Term {}
+
+trait Statement: Node {}
+
+struct LetStatement {
+    prefix: Keyword,
+    var_name: Identifier,
+    arr_expression: Option<ArrayExpression>,
+    assign: Symbol,
+    right_hand_side: Expression,
+    end: Symbol,
+}
+
+impl LetStatement {
+    fn new() -> LetStatement {
+        LetStatement {
+            prefix: Keyword::new(),
+            var_name: Identifier::new(),
+            arr_expression: None,
+            assign: Symbol::new(),
+            right_hand_side: Expression::new(),
+            end: Symbol::new(),
+        }
     }
 }
 
-impl Node for Statements {
+struct ArrayExpression {
+    start: Symbol,
+    expression: Expression,
+    end: Symbol,
+}
+
+struct StatementList {
+    list: Vec<Box<dyn Statement>>,
+}
+
+impl StatementList {
+    fn new() -> StatementList {
+        StatementList { list: Vec::new() }
+    }
+}
+
+impl Node for StatementList {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = STATEMENTS;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        // let next_level = indent_level + 1;
+        output.push_str(&end_tag);
         Ok(())
     }
+}
+
+fn compile_let_statement(
+    ctx: &mut Context,
+    target: &mut LetStatement,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    let mut current_idx = token_index;
+    Ok(current_idx)
+}
+
+fn compile_statements(
+    ctx: &mut Context,
+    target: &mut StatementList,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    let mut current_idx = token_index;
+    loop {
+        let tk = &tokens.list[current_idx];
+        match tk.token() {
+            TokenType::Keyword => {
+                let k = tk.as_any().downcast_ref::<Keyword>().unwrap();
+                match k.value.as_str() {
+                    tokenizer::LET => {
+                        let mut l = LetStatement::new();
+                        l.prefix = k.to_owned();
+                        current_idx = compile_let_statement(ctx, &mut l, tokens, current_idx + 1)?
+                    }
+                    tokenizer::IF => {
+                        current_idx += 1;
+                    }
+                    tokenizer::WHILE => {
+                        current_idx += 1;
+                    }
+                    tokenizer::DO => {
+                        current_idx += 1;
+                    }
+                    tokenizer::RETURN => {
+                        current_idx += 1;
+                    }
+                    _other => {
+                        return Err(Error::UnexpectedKeyword(_other.to_string()));
+                    }
+                }
+            }
+            _other => {
+                return Err(Error::UnexpectedToken {
+                    token: _other,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                });
+            }
+        }
+    }
+    Ok(current_idx)
 }
 
 fn compile_subroutine_dec(
@@ -532,7 +649,6 @@ fn compile_subroutine_dec(
     target.name = compile_identifier(&tokens.list[current_idx])?.to_owned();
     current_idx = compile_parameter_list(ctx, &mut target.param_list, tokens, current_idx + 1)?;
     current_idx = compile_subroutine_body(ctx, &mut target.body, tokens, current_idx)?;
-    println!("compiled SubroutineDec");
     Ok(current_idx)
 }
 
