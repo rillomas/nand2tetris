@@ -524,6 +524,16 @@ impl Expression {
         Expression {}
     }
 }
+
+fn compile_expression(
+    ctx: &mut Context,
+    target: &mut Expression,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    Ok(token_index)
+}
+
 struct Term {}
 
 trait Statement: Node {}
@@ -531,7 +541,9 @@ trait Statement: Node {}
 struct LetStatement {
     prefix: Keyword,
     var_name: Identifier,
-    arr_expression: Option<ArrayExpression>,
+    arr_start: Option<Symbol>,
+    arr_expression: Option<Expression>,
+    arr_end: Option<Symbol>,
     assign: Symbol,
     right_hand_side: Expression,
     end: Symbol,
@@ -542,20 +554,15 @@ impl LetStatement {
         LetStatement {
             prefix: Keyword::new(),
             var_name: Identifier::new(),
+            arr_start: None,
             arr_expression: None,
+            arr_end: None,
             assign: Symbol::new(),
             right_hand_side: Expression::new(),
             end: Symbol::new(),
         }
     }
 }
-
-struct ArrayExpression {
-    start: Symbol,
-    expression: Expression,
-    end: Symbol,
-}
-
 struct StatementList {
     list: Vec<Box<dyn Statement>>,
 }
@@ -586,6 +593,37 @@ fn compile_let_statement(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
+    target.var_name = compile_identifier(&tokens.list[current_idx])?.to_owned();
+    current_idx += 1;
+    loop {
+        let s = compile_symbol(&tokens.list[current_idx])?;
+        match s.value {
+            ';' => {
+                // Reached end of let statement
+                target.end = s.to_owned();
+                current_idx += 1;
+                break;
+            }
+            '[' => {
+                target.arr_start = Some(s.to_owned());
+                let mut exp = Expression::new();
+                current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
+                target.arr_expression = Some(exp);
+                target.arr_end = Some(compile_symbol(&tokens.list[current_idx])?.to_owned());
+                current_idx += 1;
+            }
+            '=' => {
+                // parse right hand side
+                target.assign = s.to_owned();
+                let mut exp = Expression::new();
+                current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
+                target.right_hand_side = exp;
+            }
+            _other => {
+                return Err(Error::UnexpectedSymbol(_other));
+            }
+        }
+    }
     Ok(current_idx)
 }
 
