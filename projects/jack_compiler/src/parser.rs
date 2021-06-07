@@ -536,7 +536,10 @@ fn compile_expression(
 
 struct Term {}
 
-trait Statement: Node {}
+trait Statement {
+    /// Serialize statement at the specified indent level
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
+}
 
 struct LetStatement {
     prefix: Keyword,
@@ -563,6 +566,13 @@ impl LetStatement {
         }
     }
 }
+
+impl Statement for LetStatement {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        Ok(())
+    }
+}
+
 struct StatementList {
     list: Vec<Box<dyn Statement>>,
 }
@@ -643,7 +653,8 @@ fn compile_statements(
                     tokenizer::LET => {
                         let mut l = LetStatement::new();
                         l.prefix = k.to_owned();
-                        current_idx = compile_let_statement(ctx, &mut l, tokens, current_idx + 1)?
+                        current_idx = compile_let_statement(ctx, &mut l, tokens, current_idx + 1)?;
+                        target.list.push(Box::new(l));
                     }
                     tokenizer::IF => {
                         current_idx += 1;
