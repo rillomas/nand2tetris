@@ -1,7 +1,7 @@
 use super::tokenizer;
 use super::tokenizer::{
-    generate_token_list, Identifier, Keyword, KeywordType, Symbol, Token, TokenList, TokenType,
-    INDENT_STR, NEW_LINE,
+    generate_token_list, Identifier, IntegerConstant, Keyword, KeywordType, StringConstant, Symbol,
+    Token, TokenList, TokenType, INDENT_STR, NEW_LINE,
 };
 
 const CLASS_VAR_DEC: &'static str = "classVarDec";
@@ -10,6 +10,7 @@ const SUBROUTINE_BODY: &'static str = "subroutineBody";
 const PARAMETER_LIST: &'static str = "parameterList";
 const VAR_DEC: &'static str = "varDec";
 const STATEMENTS: &'static str = "statements";
+const TERM: &'static str = "term";
 type SerializeError = String;
 
 #[derive(thiserror::Error, Debug)]
@@ -517,12 +518,49 @@ fn compile_var_dec(
     Ok(current_idx)
 }
 
-struct Expression {}
+struct Expression {
+    terms: Vec<Box<dyn Term>>,
+    ops: Vec<Op>,
+}
 
 impl Expression {
     fn new() -> Expression {
-        Expression {}
+        Expression {
+            terms: Vec::new(),
+            ops: Vec::new(),
+        }
     }
+}
+trait Term {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
+}
+
+struct IntegerTerm {}
+
+struct StringTerm {}
+
+struct KeywordTerm {}
+
+struct VarNameTerm {
+    name: Identifier,
+}
+
+impl Term for VarNameTerm {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = TERM;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.name.serialize(output, next_level)?;
+        output.push_str(&end_tag);
+        Ok(())
+    }
+}
+
+struct Op {
+    symbol: Symbol,
 }
 
 fn compile_expression(
@@ -531,10 +569,63 @@ fn compile_expression(
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<usize, Error> {
-    Ok(token_index)
-}
+    let mut current_idx = token_index;
+    loop {
+        let t = &tokens.list[current_idx];
+        match t.token() {
+            TokenType::Identifier => {
+                let id = compile_identifier(t)?;
+                current_idx += 1;
+                // Check next token to identify which term we have
+                let next = &tokens.list[current_idx];
+                let mut is_var_name = false;
+                match next.token() {
+                    TokenType::Symbol => {
+                        let s = compile_symbol(next)?;
+                        match s.value {
+                            '[' => {
+                                // compile array
+                                return Err(Error::UnexpectedSymbol(s.value));
+                            }
+                            '(' => {
+                                // compile subroutineCall
+                                return Err(Error::UnexpectedSymbol(s.value));
+                            }
+                            '.' => {
+                                // compile subroutineCall
+                                return Err(Error::UnexpectedSymbol(s.value));
+                            }
+                            _other => {
+                                // If we get any other symbol the first identifier is a varName
+                                is_var_name = true;
+                            }
+                        }
+                    }
+                    _other => {
+                        // If we get any other token type the first identifier is a varName
+                        is_var_name = true;
+                    }
+                }
+                if is_var_name {
+                    let t = VarNameTerm {
+                        name: id.to_owned(),
+                    };
+                    target.terms.push(Box::new(t));
+                }
+            }
+            _other => {
+                return Err(Error::UnexpectedToken {
+                    token: _other,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                });
+            }
+        }
+    }
 
-struct Term {}
+    Ok(current_idx)
+}
 
 trait Statement {
     /// Serialize statement at the specified indent level
