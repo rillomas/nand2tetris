@@ -15,9 +15,9 @@ type SerializeError = String;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("{file} {line}:{column} Got unexpected token type: {token:?}")]
+    #[error("{file} {line}:{column} Got unexpected token: {token:?}")]
     UnexpectedToken {
-        token: TokenType,
+        token: Box<dyn Token>,
         file: &'static str,
         line: u32,
         column: u32,
@@ -191,21 +191,19 @@ impl Node for SubroutineDec {
 }
 
 struct ParameterList {
-    start: Symbol,
+    block: Block,
     param_type: Vec<Box<dyn Token>>, // param_type is a Keyword or an Identifier
     name: Vec<Identifier>,
     delimiter: Vec<Symbol>,
-    end: Symbol,
 }
 
 impl ParameterList {
     fn new() -> ParameterList {
         ParameterList {
-            start: Symbol::new(),
+            block: Block::new(),
             param_type: Vec::new(),
             name: Vec::new(),
             delimiter: Vec::new(),
-            end: Symbol::new(),
         }
     }
 }
@@ -221,7 +219,7 @@ impl Node for ParameterList {
         } else {
             assert_eq!(0, self.delimiter.len());
         }
-        self.start.serialize(output, indent_level)?;
+        self.block.start.serialize(output, indent_level)?;
         let label = PARAMETER_LIST;
         let indent = INDENT_STR.repeat(indent_level);
         let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
@@ -239,7 +237,7 @@ impl Node for ParameterList {
             }
         }
         output.push_str(&end_tag);
-        self.end.serialize(output, indent_level)?;
+        self.block.end.serialize(output, indent_level)?;
         Ok(())
     }
 }
@@ -254,7 +252,7 @@ fn compile_parameter_list(
     if s.value != '(' {
         return Err(Error::UnexpectedSymbol(s.value));
     }
-    target.start = s;
+    target.block.start = s;
     current_idx += 1;
     // This flag becomes true when we found a type for a parameter.
     // We use this flag to differentiate an identifier as a class name or param name
@@ -267,7 +265,7 @@ fn compile_parameter_list(
                 match s.value {
                     ')' => {
                         // We got end of param list symbol so we store it and go next
-                        target.end = s.to_owned();
+                        target.block.end = s.to_owned();
                         current_idx += 1;
                         break;
                     }
@@ -301,7 +299,7 @@ fn compile_parameter_list(
             }
             _other => {
                 return Err(Error::UnexpectedToken {
-                    token: _other,
+                    token: tk.boxed_clone(),
                     file: file!(),
                     line: line!(),
                     column: column!(),
@@ -313,19 +311,17 @@ fn compile_parameter_list(
 }
 
 struct SubroutineBody {
-    start: Symbol,
+    block: Block,
     variables: VarDec,
     statements: StatementList,
-    end: Symbol,
 }
 
 impl SubroutineBody {
     fn new() -> SubroutineBody {
         SubroutineBody {
-            start: Symbol::new(),
+            block: Block::new(),
             variables: VarDec::new(),
             statements: StatementList::new(),
-            end: Symbol::new(),
         }
     }
 }
@@ -338,12 +334,12 @@ impl Node for SubroutineBody {
         let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
         output.push_str(&start_tag);
         let next_level = indent_level + 1;
-        self.start.serialize(output, next_level)?;
+        self.block.start.serialize(output, next_level)?;
         if self.variables.has_content() {
             self.variables.serialize(output, next_level)?;
         }
         self.statements.serialize(output, next_level)?;
-        self.end.serialize(output, next_level)?;
+        self.block.end.serialize(output, next_level)?;
         output.push_str(&end_tag);
         Ok(())
     }
@@ -360,7 +356,7 @@ fn compile_subroutine_body(
     if s.value != '{' {
         return Err(Error::UnexpectedSymbol(s.value));
     }
-    target.start = s;
+    target.block.start = s;
     current_idx += 1;
     loop {
         let tk = &tokens.list[current_idx];
@@ -370,7 +366,7 @@ fn compile_subroutine_body(
                 match s.value {
                     '}' => {
                         // We got end of subroutine body symbol so we store it and go next
-                        target.end = s.to_owned();
+                        target.block.end = s.to_owned();
                         current_idx += 1;
                         break;
                     }
@@ -405,7 +401,7 @@ fn compile_subroutine_body(
             }
             _other => {
                 return Err(Error::UnexpectedToken {
-                    token: _other,
+                    token: tk.boxed_clone(),
                     file: file!(),
                     line: line!(),
                     column: column!(),
@@ -507,7 +503,7 @@ fn compile_var_dec(
             }
             _other => {
                 return Err(Error::UnexpectedToken {
-                    token: _other,
+                    token: tk.boxed_clone(),
                     file: file!(),
                     line: line!(),
                     column: column!(),
@@ -611,11 +607,13 @@ fn compile_expression(
                         name: id.to_owned(),
                     };
                     target.terms.push(Box::new(t));
+                    // We are temporarily breaking here because we are assuming expression less input for now
+                    break;
                 }
             }
             _other => {
                 return Err(Error::UnexpectedToken {
-                    token: _other,
+                    token: t.boxed_clone(),
                     file: file!(),
                     line: line!(),
                     column: column!(),
@@ -627,17 +625,31 @@ fn compile_expression(
     Ok(current_idx)
 }
 
+/// Start and end symbol for various blocks
+struct Block {
+    start: Symbol,
+    end: Symbol,
+}
+
+impl Block {
+    fn new() -> Block {
+        Block {
+            start: Symbol::new(),
+            end: Symbol::new(),
+        }
+    }
+}
+
 trait Statement {
     /// Serialize statement at the specified indent level
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
 }
 
 struct LetStatement {
-    prefix: Keyword,
+    keyword: Keyword,
     var_name: Identifier,
-    arr_start: Option<Symbol>,
+    arr_block: Option<Block>,
     arr_expression: Option<Expression>,
-    arr_end: Option<Symbol>,
     assign: Symbol,
     right_hand_side: Expression,
     end: Symbol,
@@ -646,11 +658,10 @@ struct LetStatement {
 impl LetStatement {
     fn new() -> LetStatement {
         LetStatement {
-            prefix: Keyword::new(),
+            keyword: Keyword::new(),
             var_name: Identifier::new(),
-            arr_start: None,
+            arr_block: None,
             arr_expression: None,
-            arr_end: None,
             assign: Symbol::new(),
             right_hand_side: Expression::new(),
             end: Symbol::new(),
@@ -659,6 +670,42 @@ impl LetStatement {
 }
 
 impl Statement for LetStatement {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        Ok(())
+    }
+}
+
+/// 'else' block for an if statement.
+/// This block may not exist
+struct ElseBlock {
+    keyword: Keyword,
+    statement_block: Block,
+    statements: StatementList,
+}
+
+struct IfStatement {
+    keyword: Keyword,
+    cond_block: Block,
+    condition: Expression,
+    statement_block: Block,
+    statements: StatementList,
+    else_block: Option<ElseBlock>,
+}
+
+impl IfStatement {
+    fn new() -> IfStatement {
+        IfStatement {
+            keyword: Keyword::new(),
+            cond_block: Block::new(),
+            condition: Expression::new(),
+            statement_block: Block::new(),
+            statements: StatementList::new(),
+            else_block: None,
+        }
+    }
+}
+
+impl Statement for IfStatement {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         Ok(())
     }
@@ -706,11 +753,13 @@ fn compile_let_statement(
                 break;
             }
             '[' => {
-                target.arr_start = Some(s.to_owned());
+                let mut block = Block::new();
+                block.start = s.to_owned();
                 let mut exp = Expression::new();
                 current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
                 target.arr_expression = Some(exp);
-                target.arr_end = Some(compile_symbol(&tokens.list[current_idx])?.to_owned());
+                block.end = compile_symbol(&tokens.list[current_idx])?.to_owned();
+                target.arr_block = Some(block);
                 current_idx += 1;
             }
             '=' => {
@@ -728,6 +777,48 @@ fn compile_let_statement(
     Ok(current_idx)
 }
 
+fn compile_if_statement(
+    ctx: &mut Context,
+    target: &mut IfStatement,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    let mut current_idx = token_index;
+    // target.var_name = compile_identifier(&tokens.list[current_idx])?.to_owned();
+    // current_idx += 1;
+    // loop {
+    //     let s = compile_symbol(&tokens.list[current_idx])?;
+    //     match s.value {
+    //         ';' => {
+    //             // Reached end of let statement
+    //             target.end = s.to_owned();
+    //             current_idx += 1;
+    //             break;
+    //         }
+    //         '[' => {
+    //             let mut block = Block::new();
+    //             block.start = s.to_owned();
+    //             let mut exp = Expression::new();
+    //             current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
+    //             target.arr_expression = Some(exp);
+    //             block.end = compile_symbol(&tokens.list[current_idx])?.to_owned();
+    //             target.arr_block = Some(block);
+    //             current_idx += 1;
+    //         }
+    //         '=' => {
+    //             // parse right hand side
+    //             target.assign = s.to_owned();
+    //             let mut exp = Expression::new();
+    //             current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
+    //             target.right_hand_side = exp;
+    //         }
+    //         _other => {
+    //             return Err(Error::UnexpectedSymbol(_other));
+    //         }
+    //     }
+    // }
+    Ok(current_idx)
+}
 fn compile_statements(
     ctx: &mut Context,
     target: &mut StatementList,
@@ -743,12 +834,15 @@ fn compile_statements(
                 match k.value.as_str() {
                     tokenizer::LET => {
                         let mut l = LetStatement::new();
-                        l.prefix = k.to_owned();
+                        l.keyword = k.to_owned();
                         current_idx = compile_let_statement(ctx, &mut l, tokens, current_idx + 1)?;
                         target.list.push(Box::new(l));
                     }
                     tokenizer::IF => {
-                        current_idx += 1;
+                        let mut i = IfStatement::new();
+                        i.keyword = k.to_owned();
+                        current_idx = compile_if_statement(ctx, &mut i, tokens, current_idx + 1)?;
+                        target.list.push(Box::new(i))
                     }
                     tokenizer::WHILE => {
                         current_idx += 1;
@@ -766,7 +860,7 @@ fn compile_statements(
             }
             _other => {
                 return Err(Error::UnexpectedToken {
-                    token: _other,
+                    token: tk.boxed_clone(),
                     file: file!(),
                     line: line!(),
                     column: column!(),
@@ -812,7 +906,7 @@ fn compile_type<'a>(ctx: &mut Context, token: &'a Box<dyn Token>) -> Result<&'a 
             Ok(id)
         }
         _other => Err(Error::UnexpectedToken {
-            token: _other,
+            token: token.boxed_clone(),
             file: file!(),
             line: line!(),
             column: column!(),
@@ -841,7 +935,7 @@ fn compile_return_type<'a>(
             Ok(id)
         }
         _other => Err(Error::UnexpectedToken {
-            token: _other,
+            token: token.boxed_clone(),
             file: file!(),
             line: line!(),
             column: column!(),
@@ -880,7 +974,7 @@ fn compile_class_var_dec(
             }
             _other => {
                 return Err(Error::UnexpectedToken {
-                    token: _other,
+                    token: tk.boxed_clone(),
                     file: file!(),
                     line: line!(),
                     column: column!(),
@@ -895,7 +989,7 @@ fn compile_class_var_dec(
 fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, Error> {
     if !matches!(token.token(), TokenType::Identifier) {
         return Err(Error::UnexpectedToken {
-            token: token.token(),
+            token: token.boxed_clone(),
             file: file!(),
             line: line!(),
             column: column!(),
@@ -908,7 +1002,7 @@ fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, Error> {
 fn compile_symbol(token: &Box<dyn Token>) -> Result<&Symbol, Error> {
     if !matches!(token.token(), TokenType::Symbol) {
         return Err(Error::UnexpectedToken {
-            token: token.token(),
+            token: token.boxed_clone(),
             file: file!(),
             line: line!(),
             column: column!(),
