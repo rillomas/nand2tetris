@@ -15,9 +15,10 @@ type SerializeError = String;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("{file} {line}:{column} Got unexpected token: {token:?}")]
+    #[error("{file} {line}:{column} Got unexpected token at {index}: {token:?}")]
     UnexpectedToken {
         token: Box<dyn Token>,
+        index: usize,
         file: &'static str,
         line: u32,
         column: u32,
@@ -248,7 +249,11 @@ fn compile_parameter_list(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let s = compile_symbol(&tokens.list[current_idx])?.to_owned();
+    let s = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap()
+        .to_owned();
     if s.value != '(' {
         return Err(Error::UnexpectedSymbol(s.value));
     }
@@ -281,18 +286,24 @@ fn compile_parameter_list(
             }
             TokenType::Keyword => {
                 // should be a builtin type
-                target.param_type.push(compile_type(ctx, tk)?.boxed_clone());
+                target
+                    .param_type
+                    .push(compile_type(ctx, tk, current_idx)?.boxed_clone());
                 got_param_type = true;
                 current_idx += 1;
             }
             TokenType::Identifier => {
                 if got_param_type {
                     // should be name of param
-                    target.name.push(compile_identifier(tk)?.to_owned());
+                    target
+                        .name
+                        .push(tk.as_any().downcast_ref::<Identifier>().unwrap().to_owned());
                     got_param_type = false
                 } else {
                     // should be a class name
-                    target.param_type.push(compile_type(ctx, tk)?.boxed_clone());
+                    target
+                        .param_type
+                        .push(compile_type(ctx, tk, current_idx)?.boxed_clone());
                     got_param_type = true;
                 }
                 current_idx += 1;
@@ -300,6 +311,7 @@ fn compile_parameter_list(
             _other => {
                 return Err(Error::UnexpectedToken {
                     token: tk.boxed_clone(),
+                    index: current_idx,
                     file: file!(),
                     line: line!(),
                     column: column!(),
@@ -352,7 +364,11 @@ fn compile_subroutine_body(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let s = compile_symbol(&tokens.list[current_idx])?.to_owned();
+    let s = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap()
+        .to_owned();
     if s.value != '{' {
         return Err(Error::UnexpectedSymbol(s.value));
     }
@@ -402,6 +418,7 @@ fn compile_subroutine_body(
             _other => {
                 return Err(Error::UnexpectedToken {
                     token: tk.boxed_clone(),
+                    index: current_idx,
                     file: file!(),
                     line: line!(),
                     column: column!(),
@@ -468,11 +485,15 @@ fn compile_var_dec(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.var_type = compile_type(ctx, &tokens.list[current_idx])?.boxed_clone();
+    target.var_type = compile_type(ctx, &tokens.list[current_idx], current_idx)?.boxed_clone();
     current_idx += 1;
-    target
-        .names
-        .push(compile_identifier(&tokens.list[current_idx])?.to_owned());
+    target.names.push(
+        tokens.list[current_idx]
+            .as_any()
+            .downcast_ref::<Identifier>()
+            .unwrap()
+            .to_owned(),
+    );
     current_idx += 1;
     // if next token is delimiter
     loop {
@@ -491,9 +512,13 @@ fn compile_var_dec(
                         // We found a delimiter so we read another varName
                         target.delimiter.push(s.to_owned());
                         current_idx += 1;
-                        target
-                            .names
-                            .push(compile_identifier(&tokens.list[current_idx])?.to_owned());
+                        target.names.push(
+                            tokens.list[current_idx]
+                                .as_any()
+                                .downcast_ref::<Identifier>()
+                                .unwrap()
+                                .to_owned(),
+                        );
                         current_idx += 1;
                     }
                     _other => {
@@ -504,6 +529,7 @@ fn compile_var_dec(
             _other => {
                 return Err(Error::UnexpectedToken {
                     token: tk.boxed_clone(),
+                    index: current_idx,
                     file: file!(),
                     line: line!(),
                     column: column!(),
@@ -570,14 +596,14 @@ fn compile_expression(
         let t = &tokens.list[current_idx];
         match t.token() {
             TokenType::Identifier => {
-                let id = compile_identifier(t)?;
+                let id = t.as_any().downcast_ref::<Identifier>().unwrap();
                 current_idx += 1;
                 // Check next token to identify which term we have
                 let next = &tokens.list[current_idx];
                 let mut is_var_name = false;
                 match next.token() {
                     TokenType::Symbol => {
-                        let s = compile_symbol(next)?;
+                        let s = next.as_any().downcast_ref::<Symbol>().unwrap();
                         match s.value {
                             '[' => {
                                 // compile array
@@ -614,6 +640,7 @@ fn compile_expression(
             _other => {
                 return Err(Error::UnexpectedToken {
                     token: t.boxed_clone(),
+                    index: current_idx,
                     file: file!(),
                     line: line!(),
                     column: column!(),
@@ -711,6 +738,35 @@ impl Statement for IfStatement {
     }
 }
 
+struct SubroutineCall {}
+
+impl SubroutineCall {
+    fn new() -> SubroutineCall {
+        SubroutineCall {}
+    }
+}
+
+struct DoStatement {
+    keyword: Keyword,
+    call: SubroutineCall,
+    end: Symbol,
+}
+
+impl DoStatement {
+    fn new() -> DoStatement {
+        DoStatement {
+            keyword: Keyword::new(),
+            call: SubroutineCall::new(),
+            end: Symbol::new(),
+        }
+    }
+}
+
+impl Statement for DoStatement {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        Ok(())
+    }
+}
 struct StatementList {
     list: Vec<Box<dyn Statement>>,
 }
@@ -741,10 +797,17 @@ fn compile_let_statement(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.var_name = compile_identifier(&tokens.list[current_idx])?.to_owned();
+    target.var_name = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Identifier>()
+        .unwrap()
+        .to_owned();
     current_idx += 1;
     loop {
-        let s = compile_symbol(&tokens.list[current_idx])?;
+        let s = tokens.list[current_idx]
+            .as_any()
+            .downcast_ref::<Symbol>()
+            .unwrap();
         match s.value {
             ';' => {
                 // Reached end of let statement
@@ -758,7 +821,11 @@ fn compile_let_statement(
                 let mut exp = Expression::new();
                 current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
                 target.arr_expression = Some(exp);
-                block.end = compile_symbol(&tokens.list[current_idx])?.to_owned();
+                block.end = tokens.list[current_idx]
+                    .as_any()
+                    .downcast_ref::<Symbol>()
+                    .unwrap()
+                    .to_owned();
                 target.arr_block = Some(block);
                 current_idx += 1;
             }
@@ -780,6 +847,49 @@ fn compile_let_statement(
 fn compile_if_statement(
     ctx: &mut Context,
     target: &mut IfStatement,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    let mut current_idx = token_index;
+    // target.var_name = compile_identifier(&tokens.list[current_idx])?.to_owned();
+    // current_idx += 1;
+    // loop {
+    //     let s = compile_symbol(&tokens.list[current_idx])?;
+    //     match s.value {
+    //         ';' => {
+    //             // Reached end of let statement
+    //             target.end = s.to_owned();
+    //             current_idx += 1;
+    //             break;
+    //         }
+    //         '[' => {
+    //             let mut block = Block::new();
+    //             block.start = s.to_owned();
+    //             let mut exp = Expression::new();
+    //             current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
+    //             target.arr_expression = Some(exp);
+    //             block.end = compile_symbol(&tokens.list[current_idx])?.to_owned();
+    //             target.arr_block = Some(block);
+    //             current_idx += 1;
+    //         }
+    //         '=' => {
+    //             // parse right hand side
+    //             target.assign = s.to_owned();
+    //             let mut exp = Expression::new();
+    //             current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
+    //             target.right_hand_side = exp;
+    //         }
+    //         _other => {
+    //             return Err(Error::UnexpectedSymbol(_other));
+    //         }
+    //     }
+    // }
+    Ok(current_idx)
+}
+
+fn compile_do_statement(
+    ctx: &mut Context,
+    target: &mut DoStatement,
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<usize, Error> {
@@ -842,13 +952,16 @@ fn compile_statements(
                         let mut i = IfStatement::new();
                         i.keyword = k.to_owned();
                         current_idx = compile_if_statement(ctx, &mut i, tokens, current_idx + 1)?;
-                        target.list.push(Box::new(i))
+                        target.list.push(Box::new(i));
                     }
                     tokenizer::WHILE => {
                         current_idx += 1;
                     }
                     tokenizer::DO => {
-                        current_idx += 1;
+                        let mut d = DoStatement::new();
+                        d.keyword = k.to_owned();
+                        current_idx = compile_do_statement(ctx, &mut d, tokens, current_idx + 1)?;
+                        target.list.push(Box::new(d));
                     }
                     tokenizer::RETURN => {
                         current_idx += 1;
@@ -861,6 +974,7 @@ fn compile_statements(
             _other => {
                 return Err(Error::UnexpectedToken {
                     token: tk.boxed_clone(),
+                    index: current_idx,
                     file: file!(),
                     line: line!(),
                     column: column!(),
@@ -878,15 +992,49 @@ fn compile_subroutine_dec(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.return_type = compile_return_type(ctx, &tokens.list[current_idx])?.boxed_clone();
+    let token = &tokens.list[current_idx];
+    let rt: &dyn Token = match token.token() {
+        TokenType::Keyword => {
+            let word = token.as_any().downcast_ref::<Keyword>().unwrap();
+            match word.value.as_str() {
+                tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL | tokenizer::VOID => word,
+                _other => return Err(Error::UnexpectedKeyword(_other.to_string())),
+            }
+        }
+        TokenType::Identifier => {
+            let id = token.as_any().downcast_ref::<Identifier>().unwrap();
+            if !ctx.class_names.contains(&id.value) {
+                return Err(Error::UnknownType(id.value.clone()));
+            }
+            id
+        }
+        _other => {
+            return Err(Error::UnexpectedToken {
+                token: token.boxed_clone(),
+                index: current_idx,
+                file: file!(),
+                line: line!(),
+                column: column!(),
+            })
+        }
+    };
+    target.return_type = rt.boxed_clone();
     current_idx += 1;
-    target.name = compile_identifier(&tokens.list[current_idx])?.to_owned();
+    target.name = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Identifier>()
+        .unwrap()
+        .to_owned();
     current_idx = compile_parameter_list(ctx, &mut target.param_list, tokens, current_idx + 1)?;
     current_idx = compile_subroutine_body(ctx, &mut target.body, tokens, current_idx)?;
     Ok(current_idx)
 }
 
-fn compile_type<'a>(ctx: &mut Context, token: &'a Box<dyn Token>) -> Result<&'a dyn Token, Error> {
+fn compile_type<'a>(
+    ctx: &mut Context,
+    token: &'a Box<dyn Token>,
+    token_index: usize,
+) -> Result<&'a dyn Token, Error> {
     match token.token() {
         TokenType::Keyword => {
             let word = token.as_any().downcast_ref::<Keyword>().unwrap();
@@ -907,6 +1055,7 @@ fn compile_type<'a>(ctx: &mut Context, token: &'a Box<dyn Token>) -> Result<&'a 
         }
         _other => Err(Error::UnexpectedToken {
             token: token.boxed_clone(),
+            index: token_index,
             file: file!(),
             line: line!(),
             column: column!(),
@@ -914,34 +1063,6 @@ fn compile_type<'a>(ctx: &mut Context, token: &'a Box<dyn Token>) -> Result<&'a 
     }
 }
 
-/// Compile return type of a subroutine
-fn compile_return_type<'a>(
-    ctx: &mut Context,
-    token: &'a Box<dyn Token>,
-) -> Result<&'a dyn Token, Error> {
-    match token.token() {
-        TokenType::Keyword => {
-            let word = token.as_any().downcast_ref::<Keyword>().unwrap();
-            match word.value.as_str() {
-                tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL | tokenizer::VOID => Ok(word),
-                _other => Err(Error::UnexpectedKeyword(_other.to_string())),
-            }
-        }
-        TokenType::Identifier => {
-            let id = token.as_any().downcast_ref::<Identifier>().unwrap();
-            if !ctx.class_names.contains(&id.value) {
-                return Err(Error::UnknownType(id.value.clone()));
-            }
-            Ok(id)
-        }
-        _other => Err(Error::UnexpectedToken {
-            token: token.boxed_clone(),
-            file: file!(),
-            line: line!(),
-            column: column!(),
-        }),
-    }
-}
 fn compile_class_var_dec(
     ctx: &mut Context,
     target: &mut ClassVarDec,
@@ -949,7 +1070,7 @@ fn compile_class_var_dec(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.var_type = compile_type(ctx, &tokens.list[current_idx])?.boxed_clone();
+    target.var_type = compile_type(ctx, &tokens.list[current_idx], current_idx)?.boxed_clone();
     current_idx += 1;
     loop {
         let tk = &tokens.list[current_idx];
@@ -975,6 +1096,7 @@ fn compile_class_var_dec(
             _other => {
                 return Err(Error::UnexpectedToken {
                     token: tk.boxed_clone(),
+                    index: current_idx,
                     file: file!(),
                     line: line!(),
                     column: column!(),
@@ -984,32 +1106,6 @@ fn compile_class_var_dec(
         current_idx += 1;
     }
     Ok(current_idx)
-}
-
-fn compile_identifier(token: &Box<dyn Token>) -> Result<&Identifier, Error> {
-    if !matches!(token.token(), TokenType::Identifier) {
-        return Err(Error::UnexpectedToken {
-            token: token.boxed_clone(),
-            file: file!(),
-            line: line!(),
-            column: column!(),
-        });
-    }
-    let id = token.as_any().downcast_ref::<Identifier>().unwrap();
-    Ok(id)
-}
-
-fn compile_symbol(token: &Box<dyn Token>) -> Result<&Symbol, Error> {
-    if !matches!(token.token(), TokenType::Symbol) {
-        return Err(Error::UnexpectedToken {
-            token: token.boxed_clone(),
-            file: file!(),
-            line: line!(),
-            column: column!(),
-        });
-    }
-    let s = token.as_any().downcast_ref::<Symbol>().unwrap();
-    Ok(s)
 }
 
 /// Check and ingest all tokens related to current class
@@ -1022,11 +1118,14 @@ fn compile_class(
     // Check tokens from the head to see if they are valid class tokens
     let mut current_idx = token_index;
     let name_token = &tokens.list[current_idx];
-    let name = compile_identifier(name_token)?;
+    let name = name_token.as_any().downcast_ref::<Identifier>().unwrap();
     ctx.class_names.push(name.value.clone()); // store name in type table
     class.name = name.clone();
     current_idx += 1;
-    let open_brace = compile_symbol(&tokens.list[current_idx])?;
+    let open_brace = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
     if open_brace.value != '{' {
         return Err(Error::UnexpectedSymbol(open_brace.value));
     }
@@ -1037,9 +1136,10 @@ fn compile_class(
         let t = &tokens.list[current_idx];
         match t.token() {
             TokenType::Symbol => {
-                let close_brace = compile_symbol(t);
+                let close_brace = t.as_any().downcast_ref::<Symbol>();
+
                 // We ignore any errors for now because we want to parse as much as possible
-                if close_brace.is_ok() {
+                if close_brace.is_some() {
                     let s = close_brace.unwrap();
                     if s.value == '}' {
                         class.end_symbol = s.clone();
