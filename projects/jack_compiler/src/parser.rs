@@ -738,17 +738,38 @@ impl Statement for IfStatement {
     }
 }
 
-struct SubroutineCall {}
+struct ExpressionList {}
+struct FunctionCall {
+    name: Identifier,
+    parameter: Block,
+    list: ExpressionList,
+}
+
+struct MethodCall {
+    source_name: Identifier, // a className or varName
+    dot: Symbol,
+    method_name: Identifier,
+    parameter: Block,
+    expression: ExpressionList,
+}
+
+struct SubroutineCall {
+    function: Option<FunctionCall>,
+    method: Option<MethodCall>,
+}
 
 impl SubroutineCall {
     fn new() -> SubroutineCall {
-        SubroutineCall {}
+        SubroutineCall {
+            function: None,
+            method: None,
+        }
     }
 }
 
 struct DoStatement {
     keyword: Keyword,
-    call: SubroutineCall,
+    subroutine_call: SubroutineCall,
     end: Symbol,
 }
 
@@ -756,7 +777,7 @@ impl DoStatement {
     fn new() -> DoStatement {
         DoStatement {
             keyword: Keyword::new(),
-            call: SubroutineCall::new(),
+            subroutine_call: SubroutineCall::new(),
             end: Symbol::new(),
         }
     }
@@ -887,48 +908,35 @@ fn compile_if_statement(
     Ok(current_idx)
 }
 
+fn compile_subroutine_call(
+    ctx: &mut Context,
+    target: &mut SubroutineCall,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    let mut current_idx = token_index;
+    Ok(current_idx + 1)
+}
+
 fn compile_do_statement(
     ctx: &mut Context,
     target: &mut DoStatement,
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<usize, Error> {
-    let mut current_idx = token_index;
-    // target.var_name = compile_identifier(&tokens.list[current_idx])?.to_owned();
-    // current_idx += 1;
-    // loop {
-    //     let s = compile_symbol(&tokens.list[current_idx])?;
-    //     match s.value {
-    //         ';' => {
-    //             // Reached end of let statement
-    //             target.end = s.to_owned();
-    //             current_idx += 1;
-    //             break;
-    //         }
-    //         '[' => {
-    //             let mut block = Block::new();
-    //             block.start = s.to_owned();
-    //             let mut exp = Expression::new();
-    //             current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
-    //             target.arr_expression = Some(exp);
-    //             block.end = compile_symbol(&tokens.list[current_idx])?.to_owned();
-    //             target.arr_block = Some(block);
-    //             current_idx += 1;
-    //         }
-    //         '=' => {
-    //             // parse right hand side
-    //             target.assign = s.to_owned();
-    //             let mut exp = Expression::new();
-    //             current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
-    //             target.right_hand_side = exp;
-    //         }
-    //         _other => {
-    //             return Err(Error::UnexpectedSymbol(_other));
-    //         }
-    //     }
-    // }
-    Ok(current_idx)
+    let current_idx =
+        compile_subroutine_call(ctx, &mut target.subroutine_call, tokens, token_index)?;
+    let end_token = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
+    if !matches!(end_token.value, ';') {
+        return Err(Error::UnexpectedSymbol(end_token.value));
+    }
+    target.end = end_token.to_owned();
+    Ok(current_idx + 1)
 }
+
 fn compile_statements(
     ctx: &mut Context,
     target: &mut StatementList,
