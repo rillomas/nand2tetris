@@ -738,11 +738,34 @@ impl Statement for IfStatement {
     }
 }
 
-struct ExpressionList {}
+struct ExpressionList {
+    list: Vec<Expression>,
+    delimiter: Vec<Symbol>,
+}
+
+impl ExpressionList {
+    fn new() -> ExpressionList {
+        ExpressionList {
+            list: Vec::new(),
+            delimiter: Vec::new(),
+        }
+    }
+}
+
 struct FunctionCall {
     name: Identifier,
     parameter: Block,
     list: ExpressionList,
+}
+
+impl FunctionCall {
+    fn new() -> FunctionCall {
+        FunctionCall {
+            name: Identifier::new(),
+            parameter: Block::new(),
+            list: ExpressionList::new(),
+        }
+    }
 }
 
 struct MethodCall {
@@ -751,6 +774,18 @@ struct MethodCall {
     method_name: Identifier,
     parameter: Block,
     expression: ExpressionList,
+}
+
+impl MethodCall {
+    fn new() -> MethodCall {
+        MethodCall {
+            source_name: Identifier::new(),
+            dot: Symbol::new(),
+            method_name: Identifier::new(),
+            parameter: Block::new(),
+            expression: ExpressionList::new(),
+        }
+    }
 }
 
 struct SubroutineCall {
@@ -915,6 +950,29 @@ fn compile_subroutine_call(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
+    let source = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Identifier>()
+        .unwrap();
+    current_idx += 1;
+    // parsing branches depending on next symbol
+    let next = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
+    match next.value {
+        '(' => {
+            // function call
+            let mut f = FunctionCall::new();
+            target.function = Some(f);
+        }
+        '.' => {
+            // class/method call
+            let mut m = MethodCall::new();
+            target.method = Some(m);
+        }
+        _other => return Err(Error::UnexpectedSymbol(_other)),
+    }
     Ok(current_idx + 1)
 }
 
