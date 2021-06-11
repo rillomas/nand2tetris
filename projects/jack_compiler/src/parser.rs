@@ -672,11 +672,24 @@ trait Statement {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
 }
 
+struct ArrayExpression {
+    block: Block,
+    expression: Expression,
+}
+
+impl ArrayExpression {
+    fn new() -> ArrayExpression {
+        ArrayExpression {
+            block: Block::new(),
+            expression: Expression::new(),
+        }
+    }
+}
+
 struct LetStatement {
     keyword: Keyword,
     var_name: Identifier,
-    arr_block: Option<Block>,
-    arr_expression: Option<Expression>,
+    array: Option<ArrayExpression>,
     assign: Symbol,
     right_hand_side: Expression,
     end: Symbol,
@@ -687,8 +700,7 @@ impl LetStatement {
         LetStatement {
             keyword: Keyword::new(),
             var_name: Identifier::new(),
-            arr_block: None,
-            arr_expression: None,
+            array: None,
             assign: Symbol::new(),
             right_hand_side: Expression::new(),
             end: Symbol::new(),
@@ -752,9 +764,19 @@ impl ExpressionList {
     }
 }
 
+fn compile_expression_list(
+    ctx: &mut Context,
+    target: &mut ExpressionList,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    let mut current_idx = token_index;
+    Ok(current_idx)
+}
+
 struct FunctionCall {
     name: Identifier,
-    parameter: Block,
+    parameter_block: Block,
     list: ExpressionList,
 }
 
@@ -762,7 +784,7 @@ impl FunctionCall {
     fn new() -> FunctionCall {
         FunctionCall {
             name: Identifier::new(),
-            parameter: Block::new(),
+            parameter_block: Block::new(),
             list: ExpressionList::new(),
         }
     }
@@ -872,17 +894,21 @@ fn compile_let_statement(
                 break;
             }
             '[' => {
-                let mut block = Block::new();
-                block.start = s.to_owned();
-                let mut exp = Expression::new();
-                current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
-                target.arr_expression = Some(exp);
-                block.end = tokens.list[current_idx]
+                // got array expression
+                let mut arr = ArrayExpression::new();
+                arr.block.start = s.to_owned();
+                current_idx =
+                    compile_expression(ctx, &mut arr.expression, tokens, current_idx + 1)?;
+                let end_token = tokens.list[current_idx]
                     .as_any()
                     .downcast_ref::<Symbol>()
                     .unwrap()
                     .to_owned();
-                target.arr_block = Some(block);
+                if end_token.value != ']' {
+                    return Err(Error::UnexpectedSymbol(end_token.value));
+                }
+                arr.block.end = end_token;
+                target.array = Some(arr);
                 current_idx += 1;
             }
             '=' => {
@@ -964,16 +990,55 @@ fn compile_subroutine_call(
         '(' => {
             // function call
             let mut f = FunctionCall::new();
+            f.name = source.to_owned();
+            f.parameter_block.start = next.to_owned();
+            current_idx = compile_expression_list(ctx, &mut f.list, tokens, current_idx + 1)?;
+            let end_token = tokens.list[current_idx]
+                .as_any()
+                .downcast_ref::<Symbol>()
+                .unwrap()
+                .to_owned();
+            if end_token.value != ')' {
+                return Err(Error::UnexpectedSymbol(end_token.value));
+            }
+            f.parameter_block.end = end_token;
             target.function = Some(f);
         }
         '.' => {
             // class/method call
             let mut m = MethodCall::new();
+            m.source_name = source.to_owned();
+            m.dot = next.to_owned();
+            current_idx += 1;
+            m.method_name = tokens.list[current_idx]
+                .as_any()
+                .downcast_ref::<Identifier>()
+                .unwrap()
+                .to_owned();
+            current_idx += 1;
+            let start = tokens.list[current_idx]
+                .as_any()
+                .downcast_ref::<Symbol>()
+                .unwrap();
+            if start.value != '(' {
+                return Err(Error::UnexpectedSymbol(start.value));
+            }
+            m.parameter.start = start.to_owned();
+            current_idx = compile_expression_list(ctx, &mut m.expression, tokens, current_idx + 1)?;
+            let end = tokens.list[current_idx]
+                .as_any()
+                .downcast_ref::<Symbol>()
+                .unwrap();
+            if end.value != ')' {
+                return Err(Error::UnexpectedSymbol(end.value));
+            }
+            m.parameter.end = end.to_owned();
+            current_idx += 1;
             target.method = Some(m);
         }
         _other => return Err(Error::UnexpectedSymbol(_other)),
     }
-    Ok(current_idx + 1)
+    Ok(current_idx)
 }
 
 fn compile_do_statement(
@@ -988,7 +1053,7 @@ fn compile_do_statement(
         .as_any()
         .downcast_ref::<Symbol>()
         .unwrap();
-    if !matches!(end_token.value, ';') {
+    if end_token.value != ';' {
         return Err(Error::UnexpectedSymbol(end_token.value));
     }
     target.end = end_token.to_owned();
