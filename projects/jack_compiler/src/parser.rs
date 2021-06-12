@@ -35,6 +35,13 @@ pub enum Error {
         line: u32,
         column: u32,
     },
+    #[error("{file} {line}:{column} This path is not implemented yet")]
+    NotImplemented {
+        index: usize,
+        file: &'static str,
+        line: u32,
+        column: u32,
+    },
 }
 
 pub trait Node {
@@ -1021,39 +1028,68 @@ fn compile_if_statement(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    // target.var_name = compile_identifier(&tokens.list[current_idx])?.to_owned();
-    // current_idx += 1;
-    // loop {
-    //     let s = compile_symbol(&tokens.list[current_idx])?;
-    //     match s.value {
-    //         ';' => {
-    //             // Reached end of let statement
-    //             target.end = s.to_owned();
-    //             current_idx += 1;
-    //             break;
-    //         }
-    //         '[' => {
-    //             let mut block = Block::new();
-    //             block.start = s.to_owned();
-    //             let mut exp = Expression::new();
-    //             current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
-    //             target.arr_expression = Some(exp);
-    //             block.end = compile_symbol(&tokens.list[current_idx])?.to_owned();
-    //             target.arr_block = Some(block);
-    //             current_idx += 1;
-    //         }
-    //         '=' => {
-    //             // parse right hand side
-    //             target.assign = s.to_owned();
-    //             let mut exp = Expression::new();
-    //             current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
-    //             target.right_hand_side = exp;
-    //         }
-    //         _other => {
-    //             return Err(Error::UnexpectedSymbol(_other));
-    //         }
-    //     }
-    // }
+    let cond_start = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
+    if cond_start.value != '(' {
+        return Err(Error::UnexpectedSymbol {
+            symbol: cond_start.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
+    }
+    target.cond_block.start = cond_start.to_owned();
+    current_idx = compile_expression(ctx, &mut target.condition, tokens, current_idx + 1)?;
+    let cond_end = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
+    if cond_end.value != ')' {
+        return Err(Error::UnexpectedSymbol {
+            symbol: cond_end.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
+    }
+    target.cond_block.end = cond_end.to_owned();
+    current_idx += 1;
+    let body_start = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
+    if body_start.value != '{' {
+        return Err(Error::UnexpectedSymbol {
+            symbol: body_start.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
+    }
+    target.statement_block.start = body_start.to_owned();
+    current_idx = compile_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
+    let body_end = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
+    if body_end.value != '}' {
+        return Err(Error::UnexpectedSymbol {
+            symbol: body_end.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
+    }
+    target.statement_block.end = body_end.to_owned();
+    current_idx += 1;
+    // Check if next token is 'else' and if so we compile the else block.
+    // If it is anything else we assume it is some other statement and return
     Ok(current_idx)
 }
 
@@ -1241,7 +1277,12 @@ fn compile_statements(
                         target.list.push(Box::new(i));
                     }
                     tokenizer::WHILE => {
-                        current_idx += 1;
+                        return Err(Error::NotImplemented {
+                            index: current_idx,
+                            file: file!(),
+                            line: line!(),
+                            column: column!(),
+                        });
                     }
                     tokenizer::DO => {
                         let mut d = DoStatement::new();
