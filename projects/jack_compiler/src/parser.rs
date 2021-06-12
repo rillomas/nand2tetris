@@ -855,6 +855,28 @@ impl StatementList {
     }
 }
 
+struct ReturnStatement {
+    keyword: Keyword,
+    expression: Option<Expression>,
+    end: Symbol,
+}
+
+impl ReturnStatement {
+    fn new() -> ReturnStatement {
+        ReturnStatement {
+            keyword: Keyword::new(),
+            expression: None,
+            end: Symbol::new(),
+        }
+    }
+}
+
+impl Statement for ReturnStatement {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        Ok(())
+    }
+}
+
 impl Node for StatementList {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = STATEMENTS;
@@ -1060,6 +1082,41 @@ fn compile_do_statement(
     Ok(current_idx + 1)
 }
 
+fn compile_return_statement(
+    ctx: &mut Context,
+    target: &mut ReturnStatement,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    let mut current_idx = token_index;
+    let tk = &tokens.list[current_idx];
+    match tk.token() {
+        TokenType::Symbol => {
+            let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+            match s.value {
+                ';' => {
+                    // Reached end of statement
+                    target.end = s.to_owned();
+                    current_idx += 1;
+                }
+                _other => {
+                    // Should be part of an expression
+                    let mut e = Expression::new();
+                    current_idx = compile_expression(ctx, &mut e, tokens, current_idx).unwrap();
+                    target.expression = Some(e);
+                }
+            }
+        }
+        _other => {
+            // Should be part of an expression
+            let mut e = Expression::new();
+            current_idx = compile_expression(ctx, &mut e, tokens, current_idx).unwrap();
+            target.expression = Some(e);
+        }
+    }
+    Ok(current_idx)
+}
+
 fn compile_statements(
     ctx: &mut Context,
     target: &mut StatementList,
@@ -1095,10 +1152,27 @@ fn compile_statements(
                         target.list.push(Box::new(d));
                     }
                     tokenizer::RETURN => {
-                        current_idx += 1;
+                        let mut r = ReturnStatement::new();
+                        r.keyword = k.to_owned();
+                        current_idx =
+                            compile_return_statement(ctx, &mut r, tokens, current_idx + 1)?;
+                        target.list.push(Box::new(r));
                     }
                     _other => {
                         return Err(Error::UnexpectedKeyword(_other.to_string()));
+                    }
+                }
+            }
+            TokenType::Symbol => {
+                let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+                match s.value {
+                    '}' => {
+                        // Reached end of statements
+                        // Since the end bracket belongs to parent node we don't increment index and just return
+                        break;
+                    }
+                    _other => {
+                        return Err(Error::UnexpectedSymbol(_other));
                     }
                 }
             }
