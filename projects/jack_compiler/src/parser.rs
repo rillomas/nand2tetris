@@ -27,8 +27,14 @@ pub enum Error {
     UnexpectedKeyword(String),
     #[error("Got unknown type: {0}")]
     UnknownType(String),
-    #[error("Got unexpected symbol: {0}")]
-    UnexpectedSymbol(char),
+    #[error("{file} {line}:{column} Got unexpected symbol at {index}: {symbol}")]
+    UnexpectedSymbol {
+        symbol: char,
+        index: usize,
+        file: &'static str,
+        line: u32,
+        column: u32,
+    },
 }
 
 pub trait Node {
@@ -255,7 +261,13 @@ fn compile_parameter_list(
         .unwrap()
         .to_owned();
     if s.value != '(' {
-        return Err(Error::UnexpectedSymbol(s.value));
+        return Err(Error::UnexpectedSymbol {
+            symbol: s.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
     }
     target.block.start = s;
     current_idx += 1;
@@ -280,7 +292,13 @@ fn compile_parameter_list(
                         current_idx += 1;
                     }
                     _other => {
-                        return Err(Error::UnexpectedSymbol(_other));
+                        return Err(Error::UnexpectedSymbol {
+                            symbol: _other,
+                            index: current_idx,
+                            file: file!(),
+                            line: line!(),
+                            column: column!(),
+                        });
                     }
                 }
             }
@@ -370,7 +388,13 @@ fn compile_subroutine_body(
         .unwrap()
         .to_owned();
     if s.value != '{' {
-        return Err(Error::UnexpectedSymbol(s.value));
+        return Err(Error::UnexpectedSymbol {
+            symbol: s.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
     }
     target.block.start = s;
     current_idx += 1;
@@ -387,7 +411,13 @@ fn compile_subroutine_body(
                         break;
                     }
                     _other => {
-                        return Err(Error::UnexpectedSymbol(_other));
+                        return Err(Error::UnexpectedSymbol {
+                            symbol: _other,
+                            index: current_idx,
+                            file: file!(),
+                            line: line!(),
+                            column: column!(),
+                        });
                     }
                 }
             }
@@ -522,7 +552,13 @@ fn compile_var_dec(
                         current_idx += 1;
                     }
                     _other => {
-                        return Err(Error::UnexpectedSymbol(_other));
+                        return Err(Error::UnexpectedSymbol {
+                            symbol: _other,
+                            index: current_idx,
+                            file: file!(),
+                            line: line!(),
+                            column: column!(),
+                        });
                     }
                 }
             }
@@ -607,15 +643,33 @@ fn compile_expression(
                         match s.value {
                             '[' => {
                                 // compile array
-                                return Err(Error::UnexpectedSymbol(s.value));
+                                return Err(Error::UnexpectedSymbol {
+                                    symbol: s.value,
+                                    index: current_idx,
+                                    file: file!(),
+                                    line: line!(),
+                                    column: column!(),
+                                });
                             }
                             '(' => {
                                 // compile subroutineCall
-                                return Err(Error::UnexpectedSymbol(s.value));
+                                return Err(Error::UnexpectedSymbol {
+                                    symbol: s.value,
+                                    index: current_idx,
+                                    file: file!(),
+                                    line: line!(),
+                                    column: column!(),
+                                });
                             }
                             '.' => {
                                 // compile subroutineCall
-                                return Err(Error::UnexpectedSymbol(s.value));
+                                return Err(Error::UnexpectedSymbol {
+                                    symbol: s.value,
+                                    index: current_idx,
+                                    file: file!(),
+                                    line: line!(),
+                                    column: column!(),
+                                });
                             }
                             _other => {
                                 // If we get any other symbol the first identifier is a varName
@@ -927,7 +981,13 @@ fn compile_let_statement(
                     .unwrap()
                     .to_owned();
                 if end_token.value != ']' {
-                    return Err(Error::UnexpectedSymbol(end_token.value));
+                    return Err(Error::UnexpectedSymbol {
+                        symbol: end_token.value,
+                        index: current_idx,
+                        file: file!(),
+                        line: line!(),
+                        column: column!(),
+                    });
                 }
                 arr.block.end = end_token;
                 target.array = Some(arr);
@@ -941,7 +1001,13 @@ fn compile_let_statement(
                 target.right_hand_side = exp;
             }
             _other => {
-                return Err(Error::UnexpectedSymbol(_other));
+                return Err(Error::UnexpectedSymbol {
+                    symbol: _other,
+                    index: current_idx,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                });
             }
         }
     }
@@ -1021,7 +1087,13 @@ fn compile_subroutine_call(
                 .unwrap()
                 .to_owned();
             if end_token.value != ')' {
-                return Err(Error::UnexpectedSymbol(end_token.value));
+                return Err(Error::UnexpectedSymbol {
+                    symbol: end_token.value,
+                    index: current_idx,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                });
             }
             f.parameter_block.end = end_token;
             target.function = Some(f);
@@ -1043,7 +1115,13 @@ fn compile_subroutine_call(
                 .downcast_ref::<Symbol>()
                 .unwrap();
             if start.value != '(' {
-                return Err(Error::UnexpectedSymbol(start.value));
+                return Err(Error::UnexpectedSymbol {
+                    symbol: start.value,
+                    index: current_idx,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                });
             }
             m.parameter.start = start.to_owned();
             current_idx = compile_expression_list(ctx, &mut m.expression, tokens, current_idx + 1)?;
@@ -1052,13 +1130,27 @@ fn compile_subroutine_call(
                 .downcast_ref::<Symbol>()
                 .unwrap();
             if end.value != ')' {
-                return Err(Error::UnexpectedSymbol(end.value));
+                return Err(Error::UnexpectedSymbol {
+                    symbol: end.value,
+                    index: current_idx,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                });
             }
             m.parameter.end = end.to_owned();
             current_idx += 1;
             target.method = Some(m);
         }
-        _other => return Err(Error::UnexpectedSymbol(_other)),
+        _other => {
+            return Err(Error::UnexpectedSymbol {
+                symbol: _other,
+                index: current_idx,
+                file: file!(),
+                line: line!(),
+                column: column!(),
+            });
+        }
     }
     Ok(current_idx)
 }
@@ -1076,7 +1168,13 @@ fn compile_do_statement(
         .downcast_ref::<Symbol>()
         .unwrap();
     if end_token.value != ';' {
-        return Err(Error::UnexpectedSymbol(end_token.value));
+        return Err(Error::UnexpectedSymbol {
+            symbol: end_token.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
     }
     target.end = end_token.to_owned();
     Ok(current_idx + 1)
@@ -1172,7 +1270,13 @@ fn compile_statements(
                         break;
                     }
                     _other => {
-                        return Err(Error::UnexpectedSymbol(_other));
+                        return Err(Error::UnexpectedSymbol {
+                            symbol: _other,
+                            index: current_idx,
+                            file: file!(),
+                            line: line!(),
+                            column: column!(),
+                        });
                     }
                 }
             }
@@ -1290,7 +1394,13 @@ fn compile_class_var_dec(
                         break;
                     }
                     _other => {
-                        return Err(Error::UnexpectedSymbol(s.value));
+                        return Err(Error::UnexpectedSymbol {
+                            symbol: _other,
+                            index: current_idx,
+                            file: file!(),
+                            line: line!(),
+                            column: column!(),
+                        });
                     }
                 }
             }
@@ -1332,7 +1442,13 @@ fn compile_class(
         .downcast_ref::<Symbol>()
         .unwrap();
     if open_brace.value != '{' {
-        return Err(Error::UnexpectedSymbol(open_brace.value));
+        return Err(Error::UnexpectedSymbol {
+            symbol: open_brace.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
     }
     class.begin_symbol = open_brace.to_owned();
     current_idx += 1;
