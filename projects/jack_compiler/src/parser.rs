@@ -1,7 +1,7 @@
 use super::tokenizer;
 use super::tokenizer::{
-    generate_token_list, Identifier, IntegerConstant, Keyword, KeywordType, StringConstant, Symbol,
-    Token, TokenList, TokenType, INDENT_STR, NEW_LINE,
+    generate_token_list, Identifier, IntegerConstant, Keyword, KeywordType, SerializeError,
+    StringConstant, Symbol, Token, TokenList, TokenType, INDENT_STR, NEW_LINE,
 };
 
 const CLASS_VAR_DEC: &'static str = "classVarDec";
@@ -11,7 +11,9 @@ const PARAMETER_LIST: &'static str = "parameterList";
 const VAR_DEC: &'static str = "varDec";
 const STATEMENTS: &'static str = "statements";
 const TERM: &'static str = "term";
-type SerializeError = String;
+const RETURN_STATEMENT: &'static str = "returnStatement";
+const DO_STATEMENT: &'static str = "doStatement";
+const EXPRESSION_LIST: &'static str = "expressionList";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -133,13 +135,15 @@ impl Node for ClassVarDec {
         let var_num = self.var_names.len();
         let delim_num = self.var_delimiter.len();
         if var_num == 0 {
-            return Err(String::from("Missing variable name"));
+            return Err(SerializeError::UnexpectedState(String::from(
+                "Missing variable name",
+            )));
         } else if (var_num == 1) && (delim_num != 0) {
-            return Err(String::from(
+            return Err(SerializeError::UnexpectedState(String::from(
                 "No delimiter should exist when we only have one variable",
-            ));
+            )));
         } else if (var_num > 1) && (delim_num != var_num) {
-            return Err(String::from("Number of delimiter should match number of variables when there are multiple variables"));
+            return Err(SerializeError::UnexpectedState(String::from("Number of delimiter should match number of variables when there are multiple variables")));
         }
         let label = CLASS_VAR_DEC;
         let indent = INDENT_STR.repeat(indent_level);
@@ -595,7 +599,11 @@ impl Expression {
             ops: Vec::new(),
         }
     }
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        Ok(())
+    }
 }
+
 trait Term {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
 }
@@ -833,6 +841,32 @@ impl ExpressionList {
             delimiter: Vec::new(),
         }
     }
+
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let list_len = self.list.len();
+        let has_expression = list_len > 0;
+        if has_expression {
+            // delimiter is in between each param
+            assert_eq!(list_len - 1, self.delimiter.len());
+        } else {
+            assert_eq!(0, self.delimiter.len());
+        }
+        let label = EXPRESSION_LIST;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        if has_expression {
+            let next_level = indent_level + 1;
+            self.list[0].serialize(output, next_level)?;
+            for i in 1..list_len {
+                self.delimiter[i - 1].serialize(output, next_level)?;
+                self.list[i].serialize(output, next_level)?;
+            }
+        }
+        output.push_str(&end_tag);
+        Ok(())
+    }
 }
 
 fn compile_expression_list(
@@ -859,6 +893,13 @@ impl FunctionCall {
             list: ExpressionList::new(),
         }
     }
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        self.name.serialize(output, indent_level);
+        self.parameter_block.start.serialize(output, indent_level);
+        self.list.serialize(output, indent_level);
+        self.parameter_block.end.serialize(output, indent_level);
+        Ok(())
+    }
 }
 
 struct MethodCall {
@@ -879,6 +920,15 @@ impl MethodCall {
             expression: ExpressionList::new(),
         }
     }
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        self.source_name.serialize(output, indent_level);
+        self.dot.serialize(output, indent_level);
+        self.method_name.serialize(output, indent_level);
+        self.parameter.start.serialize(output, indent_level);
+        self.expression.serialize(output, indent_level);
+        self.parameter.end.serialize(output, indent_level);
+        Ok(())
+    }
 }
 
 struct SubroutineCall {
@@ -892,6 +942,27 @@ impl SubroutineCall {
             function: None,
             method: None,
         }
+    }
+
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        if self.function.is_some() && self.method.is_some() {
+            // Only one should have a valid value
+            return Err(SerializeError::UnexpectedState(String::from(
+                "Got both function call and method call in SubroutineCall",
+            )));
+        }
+        if self.function.is_some() {
+            self.function
+                .as_ref()
+                .unwrap()
+                .serialize(output, indent_level)?;
+        } else if self.method.is_some() {
+            self.method
+                .as_ref()
+                .unwrap()
+                .serialize(output, indent_level)?;
+        }
+        Ok(())
     }
 }
 
@@ -913,6 +984,16 @@ impl DoStatement {
 
 impl Statement for DoStatement {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = DO_STATEMENT;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.keyword.serialize(output, next_level)?;
+        self.subroutine_call.serialize(output, next_level)?;
+        self.end.serialize(output, next_level)?;
+        output.push_str(&end_tag);
         Ok(())
     }
 }
@@ -923,6 +1004,22 @@ struct StatementList {
 impl StatementList {
     fn new() -> StatementList {
         StatementList { list: Vec::new() }
+    }
+}
+
+impl Node for StatementList {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = STATEMENTS;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        for s in &self.list {
+            s.serialize(output, next_level)?;
+        }
+        output.push_str(&end_tag);
+        Ok(())
     }
 }
 
@@ -944,18 +1041,20 @@ impl ReturnStatement {
 
 impl Statement for ReturnStatement {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        Ok(())
-    }
-}
-
-impl Node for StatementList {
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        let label = STATEMENTS;
+        let label = RETURN_STATEMENT;
         let indent = INDENT_STR.repeat(indent_level);
         let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
         let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
         output.push_str(&start_tag);
-        // let next_level = indent_level + 1;
+        let next_level = indent_level + 1;
+        self.keyword.serialize(output, next_level)?;
+        if self.expression.is_some() {
+            self.expression
+                .as_ref()
+                .unwrap()
+                .serialize(output, next_level)?;
+        }
+        self.end.serialize(output, next_level)?;
         output.push_str(&end_tag);
         Ok(())
     }

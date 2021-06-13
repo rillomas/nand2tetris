@@ -23,7 +23,11 @@ pub enum TokenType {
 }
 pub const NEW_LINE: &str = "\r\n";
 pub const INDENT_STR: &'static str = "  ";
-type SerializeError = String;
+#[derive(thiserror::Error, Debug)]
+pub enum SerializeError {
+    #[error("Unexpected State: {0}")]
+    UnexpectedState(String),
+}
 
 #[derive(Debug, Copy, Clone)]
 pub enum KeywordType {
