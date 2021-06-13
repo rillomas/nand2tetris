@@ -783,6 +783,16 @@ struct ElseBlock {
     statements: StatementList,
 }
 
+impl ElseBlock {
+    fn new() -> ElseBlock {
+        ElseBlock {
+            keyword: Keyword::new(),
+            statement_block: Block::new(),
+            statements: StatementList::new(),
+        }
+    }
+}
+
 struct IfStatement {
     keyword: Keyword,
     cond_block: Block,
@@ -1021,6 +1031,45 @@ fn compile_let_statement(
     Ok(current_idx)
 }
 
+fn compile_else_block(
+    ctx: &mut Context,
+    target: &mut ElseBlock,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    let mut current_idx = token_index;
+    let block_start = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
+    if block_start.value != '{' {
+        return Err(Error::UnexpectedSymbol {
+            symbol: block_start.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
+    }
+    target.statement_block.start = block_start.to_owned();
+    current_idx = compile_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
+    let block_end = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
+    if block_end.value != '}' {
+        return Err(Error::UnexpectedSymbol {
+            symbol: block_end.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
+    }
+    target.statement_block.end = block_end.to_owned();
+    Ok(current_idx)
+}
+
 fn compile_if_statement(
     ctx: &mut Context,
     target: &mut IfStatement,
@@ -1090,6 +1139,21 @@ fn compile_if_statement(
     current_idx += 1;
     // Check if next token is 'else' and if so we compile the else block.
     // If it is anything else we assume it is some other statement and return
+    let maybe_else = &tokens.list[current_idx];
+    if !matches!(maybe_else.token(), TokenType::Keyword) {
+        // Next token is not else so we return
+        return Ok(current_idx);
+    }
+    let k = maybe_else.as_any().downcast_ref::<Keyword>().unwrap();
+    if k.value != tokenizer::ELSE {
+        // Next keyword is not else so we return
+        return Ok(current_idx);
+    }
+    // We got else so we parse else block
+    let mut eb = ElseBlock::new();
+    eb.keyword = k.to_owned();
+    current_idx = compile_else_block(ctx, &mut eb, tokens, current_idx + 1)?;
+    target.else_block = Some(eb);
     Ok(current_idx)
 }
 
