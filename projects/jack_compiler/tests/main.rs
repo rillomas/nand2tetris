@@ -53,8 +53,10 @@ fn test_parser(root: &PathBuf, dir: &str) {
         let golden_xml = std::fs::read_to_string(golden_file_path).unwrap();
         let mut xml = String::from("");
         tree.serialize(&mut xml, 0).unwrap();
-        println!("{} vs {}", &golden_name, io.input_file.display());
+        // println!("{}", golden_xml);
+        // println!("{}", xml);
         assert_eq!(golden_xml, xml);
+        println!("OK: {} vs {}", &golden_name, io.input_file.display());
     }
 }
 

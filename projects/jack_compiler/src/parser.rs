@@ -13,7 +13,10 @@ const STATEMENTS: &'static str = "statements";
 const TERM: &'static str = "term";
 const RETURN_STATEMENT: &'static str = "returnStatement";
 const DO_STATEMENT: &'static str = "doStatement";
+const LET_STATEMENT: &'static str = "letStatement";
+const IF_STATEMENT: &'static str = "ifStatement";
 const EXPRESSION_LIST: &'static str = "expressionList";
+const EXPRESSION: &'static str = "expression";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -353,7 +356,7 @@ fn compile_parameter_list(
 
 struct SubroutineBody {
     block: Block,
-    variables: VarDec,
+    variables: Vec<VarDec>,
     statements: StatementList,
 }
 
@@ -361,7 +364,7 @@ impl SubroutineBody {
     fn new() -> SubroutineBody {
         SubroutineBody {
             block: Block::new(),
-            variables: VarDec::new(),
+            variables: Vec::new(),
             statements: StatementList::new(),
         }
     }
@@ -376,8 +379,10 @@ impl Node for SubroutineBody {
         output.push_str(&start_tag);
         let next_level = indent_level + 1;
         self.block.start.serialize(output, next_level)?;
-        if self.variables.has_content() {
-            self.variables.serialize(output, next_level)?;
+        for v in &self.variables {
+            if v.has_content() {
+                v.serialize(output, next_level)?;
+            }
         }
         self.statements.serialize(output, next_level)?;
         self.block.end.serialize(output, next_level)?;
@@ -439,17 +444,18 @@ fn compile_subroutine_body(
                         // If we get 'var' it means we have a varDec
                         let mut vd = VarDec::new();
                         vd.prefix = k.to_owned();
-                        current_idx = compile_var_dec(ctx, &mut vd, tokens, current_idx + 1)?
+                        current_idx = compile_var_dec(ctx, &mut vd, tokens, current_idx + 1)?;
+                        target.variables.push(vd);
                     }
                     tokenizer::LET
                     | tokenizer::IF
                     | tokenizer::WHILE
                     | tokenizer::DO
                     | tokenizer::RETURN => {
-                        // If we get these tokenizers we have a statement
-                        let mut s = StatementList::new();
+                        // If we get these keywords we have a statement
                         // We stay on same index (no increment) to read again from the statement keyword.
-                        current_idx = compile_statements(ctx, &mut s, tokens, current_idx)?
+                        current_idx =
+                            compile_statements(ctx, &mut target.statements, tokens, current_idx)?
                     }
                     _other => {
                         return Err(Error::UnexpectedKeyword(_other.to_string()));
@@ -600,6 +606,29 @@ impl Expression {
         }
     }
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let term_len = self.terms.len();
+        let op_len = self.ops.len();
+        if term_len == 0 {
+            return Err(SerializeError::UnexpectedState(String::from(
+                "Expression must have one or more terms",
+            )));
+        } else if op_len != (term_len - 1) {
+            return Err(SerializeError::UnexpectedState(String::from(
+                "Length of ops should be one less than length of terms",
+            )));
+        }
+        let label = EXPRESSION;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.terms[0].serialize(output, next_level)?;
+        for i in 1..term_len {
+            self.ops[i - 1].serialize(output, next_level)?;
+            self.terms[i].serialize(output, next_level)?;
+        }
+        output.push_str(&end_tag);
         Ok(())
     }
 }
@@ -634,6 +663,13 @@ impl Term for VarNameTerm {
 
 struct Op {
     symbol: Symbol,
+}
+
+impl Op {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        self.symbol.serialize(output, indent_level)?;
+        Ok(())
+    }
 }
 
 fn compile_expression(
@@ -753,6 +789,13 @@ impl ArrayExpression {
             expression: Expression::new(),
         }
     }
+
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        self.block.start.serialize(output, indent_level)?;
+        self.expression.serialize(output, indent_level)?;
+        self.block.end.serialize(output, indent_level)?;
+        Ok(())
+    }
 }
 
 struct LetStatement {
@@ -779,6 +822,21 @@ impl LetStatement {
 
 impl Statement for LetStatement {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = LET_STATEMENT;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.keyword.serialize(output, next_level)?;
+        self.var_name.serialize(output, next_level)?;
+        if self.array.is_some() {
+            self.array.as_ref().unwrap().serialize(output, next_level)?;
+        }
+        self.assign.serialize(output, next_level)?;
+        self.right_hand_side.serialize(output, next_level)?;
+        self.end.serialize(output, next_level)?;
+        output.push_str(&end_tag);
         Ok(())
     }
 }
@@ -825,6 +883,27 @@ impl IfStatement {
 
 impl Statement for IfStatement {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = IF_STATEMENT;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.keyword.serialize(output, next_level)?;
+        self.cond_block.start.serialize(output, next_level)?;
+        self.condition.serialize(output, next_level)?;
+        self.cond_block.end.serialize(output, next_level)?;
+        self.statement_block.start.serialize(output, next_level)?;
+        self.statements.serialize(output, next_level)?;
+        self.statement_block.end.serialize(output, next_level)?;
+        if self.else_block.is_some() {
+            let eb = self.else_block.as_ref().unwrap();
+            eb.keyword.serialize(output, next_level)?;
+            eb.statement_block.start.serialize(output, next_level)?;
+            eb.statements.serialize(output, next_level)?;
+            eb.statement_block.end.serialize(output, next_level)?;
+        }
+        output.push_str(&end_tag);
         Ok(())
     }
 }
@@ -894,10 +973,10 @@ impl FunctionCall {
         }
     }
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        self.name.serialize(output, indent_level);
-        self.parameter_block.start.serialize(output, indent_level);
-        self.list.serialize(output, indent_level);
-        self.parameter_block.end.serialize(output, indent_level);
+        self.name.serialize(output, indent_level)?;
+        self.parameter_block.start.serialize(output, indent_level)?;
+        self.list.serialize(output, indent_level)?;
+        self.parameter_block.end.serialize(output, indent_level)?;
         Ok(())
     }
 }
@@ -921,12 +1000,12 @@ impl MethodCall {
         }
     }
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        self.source_name.serialize(output, indent_level);
-        self.dot.serialize(output, indent_level);
-        self.method_name.serialize(output, indent_level);
-        self.parameter.start.serialize(output, indent_level);
-        self.expression.serialize(output, indent_level);
-        self.parameter.end.serialize(output, indent_level);
+        self.source_name.serialize(output, indent_level)?;
+        self.dot.serialize(output, indent_level)?;
+        self.method_name.serialize(output, indent_level)?;
+        self.parameter.start.serialize(output, indent_level)?;
+        self.expression.serialize(output, indent_level)?;
+        self.parameter.end.serialize(output, indent_level)?;
         Ok(())
     }
 }
@@ -1112,9 +1191,8 @@ fn compile_let_statement(
             '=' => {
                 // parse right hand side
                 target.assign = s.to_owned();
-                let mut exp = Expression::new();
-                current_idx = compile_expression(ctx, &mut exp, tokens, current_idx + 1)?;
-                target.right_hand_side = exp;
+                current_idx =
+                    compile_expression(ctx, &mut target.right_hand_side, tokens, current_idx + 1)?;
             }
             _other => {
                 return Err(Error::UnexpectedSymbol {
@@ -1166,7 +1244,7 @@ fn compile_else_block(
         });
     }
     target.statement_block.end = block_end.to_owned();
-    Ok(current_idx)
+    Ok(current_idx + 1)
 }
 
 fn compile_if_statement(
