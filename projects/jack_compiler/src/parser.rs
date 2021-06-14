@@ -593,6 +593,7 @@ fn compile_var_dec(
     Ok(current_idx)
 }
 
+#[derive(Debug)]
 struct Expression {
     terms: Vec<Box<dyn Term>>,
     ops: Vec<Op>,
@@ -633,7 +634,7 @@ impl Expression {
     }
 }
 
-trait Term {
+trait Term: std::fmt::Debug {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
 }
 
@@ -643,6 +644,7 @@ struct StringTerm {}
 
 struct KeywordTerm {}
 
+#[derive(Debug)]
 struct VarNameTerm {
     name: Identifier,
 }
@@ -661,6 +663,7 @@ impl Term for VarNameTerm {
     }
 }
 
+#[derive(Debug)]
 struct Op {
     symbol: Symbol,
 }
@@ -758,6 +761,7 @@ fn compile_expression(
 }
 
 /// Start and end symbol for various blocks
+#[derive(Debug)]
 struct Block {
     start: Symbol,
     end: Symbol,
@@ -772,11 +776,12 @@ impl Block {
     }
 }
 
-trait Statement {
+trait Statement: std::fmt::Debug {
     /// Serialize statement at the specified indent level
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
 }
 
+#[derive(Debug)]
 struct ArrayExpression {
     block: Block,
     expression: Expression,
@@ -798,6 +803,7 @@ impl ArrayExpression {
     }
 }
 
+#[derive(Debug)]
 struct LetStatement {
     keyword: Keyword,
     var_name: Identifier,
@@ -843,6 +849,7 @@ impl Statement for LetStatement {
 
 /// 'else' block for an if statement.
 /// This block may not exist
+#[derive(Debug)]
 struct ElseBlock {
     keyword: Keyword,
     statement_block: Block,
@@ -859,6 +866,7 @@ impl ElseBlock {
     }
 }
 
+#[derive(Debug)]
 struct IfStatement {
     keyword: Keyword,
     cond_block: Block,
@@ -908,6 +916,7 @@ impl Statement for IfStatement {
     }
 }
 
+#[derive(Debug)]
 struct ExpressionList {
     list: Vec<Expression>,
     delimiter: Vec<Symbol>,
@@ -958,6 +967,7 @@ fn compile_expression_list(
     Ok(current_idx)
 }
 
+#[derive(Debug)]
 struct FunctionCall {
     name: Identifier,
     parameter_block: Block,
@@ -981,6 +991,7 @@ impl FunctionCall {
     }
 }
 
+#[derive(Debug)]
 struct MethodCall {
     source_name: Identifier, // a className or varName
     dot: Symbol,
@@ -1010,6 +1021,7 @@ impl MethodCall {
     }
 }
 
+#[derive(Debug)]
 struct SubroutineCall {
     function: Option<FunctionCall>,
     method: Option<MethodCall>,
@@ -1045,6 +1057,7 @@ impl SubroutineCall {
     }
 }
 
+#[derive(Debug)]
 struct DoStatement {
     keyword: Keyword,
     subroutine_call: SubroutineCall,
@@ -1076,6 +1089,7 @@ impl Statement for DoStatement {
         Ok(())
     }
 }
+#[derive(Debug)]
 struct StatementList {
     list: Vec<Box<dyn Statement>>,
 }
@@ -1102,6 +1116,7 @@ impl Node for StatementList {
     }
 }
 
+#[derive(Debug)]
 struct ReturnStatement {
     keyword: Keyword,
     expression: Option<Expression>,
@@ -1373,6 +1388,7 @@ fn compile_subroutine_call(
                 });
             }
             f.parameter_block.end = end_token;
+            current_idx += 1;
             target.function = Some(f);
         }
         '.' => {
@@ -1479,6 +1495,21 @@ fn compile_return_statement(
                     let mut e = Expression::new();
                     current_idx = compile_expression(ctx, &mut e, tokens, current_idx).unwrap();
                     target.expression = Some(e);
+                    let end = tokens.list[current_idx]
+                        .as_any()
+                        .downcast_ref::<Symbol>()
+                        .unwrap();
+                    if end.value != ';' {
+                        return Err(Error::UnexpectedSymbol {
+                            symbol: end.value,
+                            index: current_idx,
+                            file: file!(),
+                            line: line!(),
+                            column: column!(),
+                        });
+                    }
+                    target.end = end.to_owned();
+                    current_idx += 1;
                 }
             }
         }
@@ -1487,6 +1518,21 @@ fn compile_return_statement(
             let mut e = Expression::new();
             current_idx = compile_expression(ctx, &mut e, tokens, current_idx).unwrap();
             target.expression = Some(e);
+            let end = tokens.list[current_idx]
+                .as_any()
+                .downcast_ref::<Symbol>()
+                .unwrap();
+            if end.value != ';' {
+                return Err(Error::UnexpectedSymbol {
+                    symbol: end.value,
+                    index: current_idx,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                });
+            }
+            target.end = end.to_owned();
+            current_idx += 1;
         }
     }
     Ok(current_idx)
