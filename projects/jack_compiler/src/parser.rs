@@ -28,8 +28,8 @@ pub enum Error {
         line: u32,
         column: u32,
     },
-    #[error("Got unexpected keyword: {0}")]
-    UnexpectedKeyword(String),
+    #[error("Got unexpected keyword: {0:?}")]
+    UnexpectedKeyword(KeywordType),
     #[error("Got unknown type: {0}")]
     UnknownType(String),
     #[error("{file} {line}:{column} Got unexpected symbol at {index}: {symbol}")]
@@ -439,26 +439,26 @@ fn compile_subroutine_body(
             }
             TokenType::Keyword => {
                 let k = tk.as_any().downcast_ref::<Keyword>().unwrap();
-                match k.value.as_str() {
-                    tokenizer::VAR => {
+                match k.keyword() {
+                    KeywordType::Var => {
                         // If we get 'var' it means we have a varDec
                         let mut vd = VarDec::new();
                         vd.prefix = k.to_owned();
                         current_idx = compile_var_dec(ctx, &mut vd, tokens, current_idx + 1)?;
                         target.variables.push(vd);
                     }
-                    tokenizer::LET
-                    | tokenizer::IF
-                    | tokenizer::WHILE
-                    | tokenizer::DO
-                    | tokenizer::RETURN => {
+                    KeywordType::Let
+                    | KeywordType::If
+                    | KeywordType::While
+                    | KeywordType::Do
+                    | KeywordType::Return => {
                         // If we get these keywords we have a statement
                         // We stay on same index (no increment) to read again from the statement keyword.
                         current_idx =
                             compile_statements(ctx, &mut target.statements, tokens, current_idx)?
                     }
                     _other => {
-                        return Err(Error::UnexpectedKeyword(_other.to_string()));
+                        return Err(Error::UnexpectedKeyword(_other));
                     }
                 }
             }
@@ -642,24 +642,41 @@ struct IntegerTerm {}
 
 struct StringTerm {}
 
-struct KeywordTerm {}
+#[derive(Debug)]
+struct KeywordTerm {
+    keyword: Keyword,
+}
 
 #[derive(Debug)]
 struct VarNameTerm {
     name: Identifier,
 }
 
+fn serialize_term(
+    t: &dyn Token,
+    output: &mut String,
+    indent_level: usize,
+) -> Result<(), SerializeError> {
+    let label = TERM;
+    let indent = INDENT_STR.repeat(indent_level);
+    let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+    let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+    output.push_str(&start_tag);
+    let next_level = indent_level + 1;
+    t.serialize(output, next_level)?;
+    output.push_str(&end_tag);
+    Ok(())
+}
+
 impl Term for VarNameTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        let label = TERM;
-        let indent = INDENT_STR.repeat(indent_level);
-        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
-        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
-        output.push_str(&start_tag);
-        let next_level = indent_level + 1;
-        self.name.serialize(output, next_level)?;
-        output.push_str(&end_tag);
-        Ok(())
+        serialize_term(&self.name, output, indent_level)
+    }
+}
+
+impl Term for KeywordTerm {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        serialize_term(&self.keyword, output, indent_level)
     }
 }
 
@@ -743,6 +760,27 @@ fn compile_expression(
                     target.terms.push(Box::new(t));
                     // We are temporarily breaking here because we are assuming expression less input for now
                     break;
+                }
+            }
+            TokenType::Keyword => {
+                let kw = t.as_any().downcast_ref::<Keyword>().unwrap();
+                match kw.keyword() {
+                    KeywordType::This
+                    | KeywordType::Null
+                    | KeywordType::True
+                    | KeywordType::False => {
+                        // KeywordConstant
+                        let k = KeywordTerm {
+                            keyword: kw.to_owned(),
+                        };
+                        target.terms.push(Box::new(k));
+                        current_idx += 1;
+                        // We are temporarily breaking here because we are assuming expression less input for now
+                        break;
+                    }
+                    _other => {
+                        return Err(Error::UnexpectedKeyword(_other));
+                    }
                 }
             }
             _other => {
@@ -964,6 +1002,37 @@ fn compile_expression_list(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
+    loop {
+        let tk = &tokens.list[current_idx];
+        match tk.token() {
+            TokenType::Symbol => {
+                let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+                match s.value {
+                    ')' => {
+                        // End of expression list
+                        break;
+                    }
+                    ',' => {
+                        // We have another expression coming next
+                        target.delimiter.push(s.to_owned());
+                        current_idx += 1;
+                    }
+                    _other => {
+                        // We have an expression so we parse it
+                        let mut exp = Expression::new();
+                        current_idx = compile_expression(ctx, &mut exp, tokens, current_idx)?;
+                        target.list.push(exp);
+                    }
+                }
+            }
+            _other => {
+                // We have an expression so we parse it
+                let mut exp = Expression::new();
+                current_idx = compile_expression(ctx, &mut exp, tokens, current_idx)?;
+                target.list.push(exp);
+            }
+        }
+    }
     Ok(current_idx)
 }
 
@@ -1337,7 +1406,7 @@ fn compile_if_statement(
         return Ok(current_idx);
     }
     let k = maybe_else.as_any().downcast_ref::<Keyword>().unwrap();
-    if k.value != tokenizer::ELSE {
+    if !matches!(k.keyword(), KeywordType::Else) {
         // Next keyword is not else so we return
         return Ok(current_idx);
     }
@@ -1550,20 +1619,20 @@ fn compile_statements(
         match tk.token() {
             TokenType::Keyword => {
                 let k = tk.as_any().downcast_ref::<Keyword>().unwrap();
-                match k.value.as_str() {
-                    tokenizer::LET => {
+                match k.keyword() {
+                    KeywordType::Let => {
                         let mut l = LetStatement::new();
                         l.keyword = k.to_owned();
                         current_idx = compile_let_statement(ctx, &mut l, tokens, current_idx + 1)?;
                         target.list.push(Box::new(l));
                     }
-                    tokenizer::IF => {
+                    KeywordType::If => {
                         let mut i = IfStatement::new();
                         i.keyword = k.to_owned();
                         current_idx = compile_if_statement(ctx, &mut i, tokens, current_idx + 1)?;
                         target.list.push(Box::new(i));
                     }
-                    tokenizer::WHILE => {
+                    KeywordType::While => {
                         return Err(Error::NotImplemented {
                             index: current_idx,
                             file: file!(),
@@ -1571,13 +1640,13 @@ fn compile_statements(
                             column: column!(),
                         });
                     }
-                    tokenizer::DO => {
+                    KeywordType::Do => {
                         let mut d = DoStatement::new();
                         d.keyword = k.to_owned();
                         current_idx = compile_do_statement(ctx, &mut d, tokens, current_idx + 1)?;
                         target.list.push(Box::new(d));
                     }
-                    tokenizer::RETURN => {
+                    KeywordType::Return => {
                         let mut r = ReturnStatement::new();
                         r.keyword = k.to_owned();
                         current_idx =
@@ -1585,7 +1654,7 @@ fn compile_statements(
                         target.list.push(Box::new(r));
                     }
                     _other => {
-                        return Err(Error::UnexpectedKeyword(_other.to_string()));
+                        return Err(Error::UnexpectedKeyword(_other));
                     }
                 }
             }
@@ -1633,9 +1702,11 @@ fn compile_subroutine_dec(
     let rt: &dyn Token = match token.token() {
         TokenType::Keyword => {
             let word = token.as_any().downcast_ref::<Keyword>().unwrap();
-            match word.value.as_str() {
-                tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL | tokenizer::VOID => word,
-                _other => return Err(Error::UnexpectedKeyword(_other.to_string())),
+            match word.keyword() {
+                KeywordType::Int | KeywordType::Char | KeywordType::Boolean | KeywordType::Void => {
+                    word
+                }
+                _other => return Err(Error::UnexpectedKeyword(_other)),
             }
         }
         TokenType::Identifier => {
@@ -1675,9 +1746,9 @@ fn compile_type<'a>(
     match token.token() {
         TokenType::Keyword => {
             let word = token.as_any().downcast_ref::<Keyword>().unwrap();
-            match word.value.as_str() {
-                tokenizer::INT | tokenizer::CHAR | tokenizer::BOOL => Ok(word),
-                _other => Err(Error::UnexpectedKeyword(_other.to_string())),
+            match word.keyword() {
+                KeywordType::Int | KeywordType::Char | KeywordType::Boolean => Ok(word),
+                _other => Err(Error::UnexpectedKeyword(_other)),
             }
         }
         TokenType::Identifier => {
@@ -1803,14 +1874,14 @@ fn compile_class(
             TokenType::Keyword => {
                 // We should be looking for keywords indicating classVarDec or subroutineDec
                 let keyword = t.as_any().downcast_ref::<Keyword>().unwrap();
-                match keyword.value.as_str() {
-                    tokenizer::STATIC | tokenizer::FIELD => {
+                match keyword.keyword() {
+                    KeywordType::Static | KeywordType::Field => {
                         let mut cvd = ClassVarDec::new(keyword.clone());
                         current_idx =
                             compile_class_var_dec(ctx, &mut cvd, tokens, current_idx + 1)?;
                         class.add_child(Box::new(cvd))?;
                     }
-                    tokenizer::CONSTRUCTOR | tokenizer::FUNCTION | tokenizer::METHOD => {
+                    KeywordType::Constructor | KeywordType::Function | KeywordType::Method => {
                         let mut sd = SubroutineDec::new(keyword.clone());
                         current_idx =
                             compile_subroutine_dec(ctx, &mut sd, tokens, current_idx + 1)?;

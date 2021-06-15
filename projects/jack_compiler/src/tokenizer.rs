@@ -104,23 +104,27 @@ pub struct Keyword {
     pub value: String,
 }
 
-pub const STATIC: &str = "static";
-pub const CONSTRUCTOR: &str = "constructor";
-pub const FUNCTION: &str = "function";
+const STATIC: &str = "static";
+const CONSTRUCTOR: &str = "constructor";
+const FUNCTION: &str = "function";
 pub const CLASS: &str = "class";
-pub const METHOD: &str = "method";
-pub const FIELD: &str = "field";
-pub const VOID: &str = "void";
-pub const INT: &str = "int";
-pub const CHAR: &str = "char";
-pub const BOOL: &str = "boolean";
-pub const VAR: &str = "var";
-pub const LET: &str = "let";
-pub const IF: &str = "if";
-pub const ELSE: &str = "else";
-pub const WHILE: &str = "while";
-pub const DO: &str = "do";
-pub const RETURN: &str = "return";
+const METHOD: &str = "method";
+const FIELD: &str = "field";
+const VOID: &str = "void";
+const INT: &str = "int";
+const CHAR: &str = "char";
+const BOOL: &str = "boolean";
+const VAR: &str = "var";
+const LET: &str = "let";
+const IF: &str = "if";
+const ELSE: &str = "else";
+const WHILE: &str = "while";
+const DO: &str = "do";
+const RETURN: &str = "return";
+const THIS: &str = "this";
+const TRUE: &str = "true";
+const FALSE: &str = "false";
+const NULL: &str = "null";
 
 impl Keyword {
     pub fn new() -> Keyword {
@@ -142,10 +146,10 @@ impl Keyword {
             CHAR => KeywordType::Char,
             BOOL => KeywordType::Boolean,
             VOID => KeywordType::Void,
-            "true" => KeywordType::True,
-            "false" => KeywordType::False,
-            "null" => KeywordType::Null,
-            "this" => KeywordType::This,
+            TRUE => KeywordType::True,
+            FALSE => KeywordType::False,
+            NULL => KeywordType::Null,
+            THIS => KeywordType::This,
             LET => KeywordType::Let,
             DO => KeywordType::Do,
             IF => KeywordType::If,
@@ -349,10 +353,10 @@ const KEYWORD_LIST: [&str; 21] = [
     CHAR,
     BOOL,
     VOID,
-    "true",
-    "false",
-    "null",
-    "this",
+    TRUE,
+    FALSE,
+    NULL,
+    THIS,
     LET,
     DO,
     IF,
