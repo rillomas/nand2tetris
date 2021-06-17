@@ -763,6 +763,25 @@ fn compile_expression(
                 target.terms.push(Box::new(s));
                 current_idx += 1;
             }
+            TokenType::Keyword => {
+                let kw = t.as_any().downcast_ref::<Keyword>().unwrap();
+                match kw.keyword() {
+                    KeywordType::This
+                    | KeywordType::Null
+                    | KeywordType::True
+                    | KeywordType::False => {
+                        // KeywordConstant
+                        let k = KeywordTerm {
+                            keyword: kw.to_owned(),
+                        };
+                        target.terms.push(Box::new(k));
+                        current_idx += 1;
+                    }
+                    _other => {
+                        return Err(Error::UnexpectedKeyword(_other));
+                    }
+                }
+            }
             TokenType::Identifier => {
                 let id = t.as_any().downcast_ref::<Identifier>().unwrap();
                 current_idx += 1;
@@ -774,8 +793,7 @@ fn compile_expression(
                         match s.value {
                             '[' => {
                                 // compile array
-                                return Err(Error::UnexpectedSymbol {
-                                    symbol: s.value,
+                                return Err(Error::NotImplemented {
                                     index: current_idx,
                                     file: file!(),
                                     line: line!(),
@@ -784,8 +802,7 @@ fn compile_expression(
                             }
                             '(' => {
                                 // compile subroutineCall
-                                return Err(Error::UnexpectedSymbol {
-                                    symbol: s.value,
+                                return Err(Error::NotImplemented {
                                     index: current_idx,
                                     file: file!(),
                                     line: line!(),
@@ -794,8 +811,7 @@ fn compile_expression(
                             }
                             '.' => {
                                 // compile subroutineCall
-                                return Err(Error::UnexpectedSymbol {
-                                    symbol: s.value,
+                                return Err(Error::NotImplemented {
                                     index: current_idx,
                                     file: file!(),
                                     line: line!(),
@@ -817,25 +833,6 @@ fn compile_expression(
                             name: id.to_owned(),
                         };
                         target.terms.push(Box::new(t));
-                    }
-                }
-            }
-            TokenType::Keyword => {
-                let kw = t.as_any().downcast_ref::<Keyword>().unwrap();
-                match kw.keyword() {
-                    KeywordType::This
-                    | KeywordType::Null
-                    | KeywordType::True
-                    | KeywordType::False => {
-                        // KeywordConstant
-                        let k = KeywordTerm {
-                            keyword: kw.to_owned(),
-                        };
-                        target.terms.push(Box::new(k));
-                        current_idx += 1;
-                    }
-                    _other => {
-                        return Err(Error::UnexpectedKeyword(_other));
                     }
                 }
             }
@@ -866,14 +863,15 @@ fn compile_expression(
                     }
                     '-' | '~' => {
                         // Unary op + term
-                        return Err(Error::UnexpectedSymbol {
-                            symbol: s.value,
+                        return Err(Error::NotImplemented {
                             index: current_idx,
                             file: file!(),
                             line: line!(),
                             column: column!(),
                         });
                     }
+                    // '+' | '-' | *' | '/' | '&' | '|' | '<' | '>' | '=' => {
+                    // }
                     ')' | ']' | ';' | ',' => {
                         // We've arrived to the end of parenthesis, array expression, line, or delimieter between expressions
                         break;
