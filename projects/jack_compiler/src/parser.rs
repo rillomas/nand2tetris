@@ -788,7 +788,7 @@ fn compile_expression(
                                 });
                             }
                             '(' => {
-                                // compile subroutineCall
+                                // compile subroutineCall (functionCall)
                                 return Err(Error::NotImplemented {
                                     index: current_idx,
                                     file: file!(),
@@ -797,13 +797,45 @@ fn compile_expression(
                                 });
                             }
                             '.' => {
-                                // compile subroutineCall
-                                return Err(Error::NotImplemented {
-                                    index: current_idx,
-                                    file: file!(),
-                                    line: line!(),
-                                    column: column!(),
-                                });
+                                // compile subroutineCall (methodCall)
+                                let mut mc = MethodCall::new();
+                                mc.source_name = id.to_owned();
+                                mc.dot = s.to_owned();
+                                current_idx += 1;
+                                let subroutine = get_token::<Identifier>(tokens, current_idx);
+                                mc.method_name = subroutine.to_owned();
+                                current_idx += 1;
+                                let open_paren = get_token::<Symbol>(tokens, current_idx);
+                                if open_paren.value != '(' {
+                                    return Err(Error::UnexpectedSymbol {
+                                        symbol: open_paren.value,
+                                        index: current_idx,
+                                        file: file!(),
+                                        line: line!(),
+                                        column: column!(),
+                                    });
+                                }
+                                mc.parameter.start = open_paren.to_owned();
+                                current_idx = compile_expression_list(
+                                    ctx,
+                                    &mut mc.expression,
+                                    tokens,
+                                    current_idx + 1,
+                                )?;
+                                let close_paren = get_token::<Symbol>(tokens, current_idx);
+                                if close_paren.value != ')' {
+                                    return Err(Error::UnexpectedSymbol {
+                                        symbol: close_paren.value,
+                                        index: current_idx,
+                                        file: file!(),
+                                        line: line!(),
+                                        column: column!(),
+                                    });
+                                }
+                                mc.parameter.end = close_paren.to_owned();
+                                let mut sc = SubroutineCall::new();
+                                sc.method = Some(mc);
+                                target.terms.push(Box::new(sc));
                             }
                             _other => {
                                 // If we get any other symbol the first identifier is a varName
@@ -1174,7 +1206,6 @@ struct SubroutineCall {
     function: Option<FunctionCall>,
     method: Option<MethodCall>,
 }
-
 impl SubroutineCall {
     fn new() -> SubroutineCall {
         SubroutineCall {
@@ -1182,7 +1213,9 @@ impl SubroutineCall {
             method: None,
         }
     }
+}
 
+impl Term for SubroutineCall {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         if self.function.is_some() && self.method.is_some() {
             // Only one should have a valid value

@@ -90,8 +90,8 @@ fn test_parser_expression_less_square_xml() {
 //     test_parser(&root, "ArrayTest")
 // }
 
-// #[test]
-// fn test_parser_square_xml() -> Result<(), parser::Error> {
-//     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-//     test_parser(&root, "Square")
-// }
+#[test]
+fn test_parser_square_xml() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    test_parser(&root, "Square");
+}
