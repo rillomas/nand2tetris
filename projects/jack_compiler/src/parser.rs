@@ -651,6 +651,21 @@ struct ExpressionInParenthesis {
     block: Block,
 }
 
+#[derive(Debug)]
+struct ArrayVarTerm {
+    name: Identifier,
+    arr: ArrayExpression,
+}
+
+impl ArrayVarTerm {
+    fn new() -> ArrayVarTerm {
+        ArrayVarTerm {
+            name: Identifier::new(),
+            arr: ArrayExpression::new(),
+        }
+    }
+}
+
 impl ExpressionInParenthesis {
     fn new() -> ExpressionInParenthesis {
         ExpressionInParenthesis {
@@ -702,6 +717,21 @@ impl Term for KeywordTerm {
 
 impl Term for ExpressionInParenthesis {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        Ok(())
+    }
+}
+
+impl Term for ArrayVarTerm {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = TERM;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.name.serialize(output, next_level)?;
+        self.arr.serialize(output, next_level)?;
+        output.push_str(&end_tag);
         Ok(())
     }
 }
@@ -780,12 +810,28 @@ fn compile_expression(
                         match s.value {
                             '[' => {
                                 // compile array
-                                return Err(Error::NotImplemented {
-                                    index: current_idx,
-                                    file: file!(),
-                                    line: line!(),
-                                    column: column!(),
-                                });
+                                let mut arr = ArrayVarTerm::new();
+                                arr.name = id.to_owned();
+                                arr.arr.block.start = s.to_owned();
+                                current_idx = compile_expression(
+                                    ctx,
+                                    &mut arr.arr.expression,
+                                    tokens,
+                                    current_idx + 1,
+                                )?;
+                                let close_brace = get_token::<Symbol>(tokens, current_idx);
+                                if close_brace.value != ']' {
+                                    return Err(Error::UnexpectedSymbol {
+                                        symbol: close_brace.value,
+                                        index: current_idx,
+                                        file: file!(),
+                                        line: line!(),
+                                        column: column!(),
+                                    });
+                                }
+                                arr.arr.block.end = close_brace.to_owned();
+                                current_idx += 1;
+                                target.terms.push(Box::new(arr));
                             }
                             '(' => {
                                 // compile subroutineCall (functionCall)
@@ -833,6 +879,7 @@ fn compile_expression(
                                     });
                                 }
                                 mc.parameter.end = close_paren.to_owned();
+                                current_idx += 1;
                                 let mut sc = SubroutineCall::new();
                                 sc.method = Some(mc);
                                 target.terms.push(Box::new(sc));
