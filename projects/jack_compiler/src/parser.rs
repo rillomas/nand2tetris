@@ -134,19 +134,18 @@ impl ClassVarDec {
 
 impl Node for ClassVarDec {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        // number of vars and number of delimiters should match unless when we only have one var_name
+        // number of delimiters should be one less than number of vars
         let var_num = self.var_names.len();
         let delim_num = self.var_delimiter.len();
         if var_num == 0 {
             return Err(SerializeError::UnexpectedState(String::from(
                 "Missing variable name",
             )));
-        } else if (var_num == 1) && (delim_num != 0) {
-            return Err(SerializeError::UnexpectedState(String::from(
-                "No delimiter should exist when we only have one variable",
+        } else if delim_num != (var_num - 1) {
+            return Err(SerializeError::UnexpectedState(format!(
+                "Number of delimiter should be var_num-1. var_num: {} delim_num: {}",
+                var_num, delim_num
             )));
-        } else if (var_num > 1) && (delim_num != var_num) {
-            return Err(SerializeError::UnexpectedState(String::from("Number of delimiter should match number of variables when there are multiple variables")));
         }
         let label = CLASS_VAR_DEC;
         let indent = INDENT_STR.repeat(indent_level);
@@ -157,14 +156,12 @@ impl Node for ClassVarDec {
         self.prefix.serialize(output, next_level)?;
         // Serialize var type. Either a builtin type or a user class should be specified
         self.var_type.serialize(output, next_level)?;
-        if var_num == 1 {
-            // single variable
-            self.var_names[0].serialize(output, next_level)?;
-        } else {
+        self.var_names[0].serialize(output, next_level)?;
+        if var_num > 1 {
             // multiple variables
-            for i in 0..var_num {
+            for i in 1..var_num {
+                self.var_delimiter[i - 1].serialize(output, next_level)?;
                 self.var_names[i].serialize(output, next_level)?;
-                self.var_delimiter[i].serialize(output, next_level)?;
             }
         }
         self.end_symbol.serialize(output, next_level)?;
