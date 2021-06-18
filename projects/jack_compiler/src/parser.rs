@@ -15,6 +15,7 @@ const RETURN_STATEMENT: &'static str = "returnStatement";
 const DO_STATEMENT: &'static str = "doStatement";
 const LET_STATEMENT: &'static str = "letStatement";
 const IF_STATEMENT: &'static str = "ifStatement";
+const WHILE_STATEMENT: &'static str = "whileStatement";
 const EXPRESSION_LIST: &'static str = "expressionList";
 const EXPRESSION: &'static str = "expression";
 
@@ -1315,6 +1316,47 @@ impl Statement for ReturnStatement {
     }
 }
 
+#[derive(Debug)]
+struct WhileStatement {
+    keyword: Keyword,
+    condition: Block,
+    expression: Expression,
+    body: Block,
+    statements: StatementList,
+}
+
+impl WhileStatement {
+    fn new() -> WhileStatement {
+        WhileStatement {
+            keyword: Keyword::new(),
+            condition: Block::new(),
+            expression: Expression::new(),
+            body: Block::new(),
+            statements: StatementList::new(),
+        }
+    }
+}
+
+impl Statement for WhileStatement {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = WHILE_STATEMENT;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.keyword.serialize(output, next_level)?;
+        self.condition.start.serialize(output, next_level)?;
+        self.expression.serialize(output, next_level)?;
+        self.condition.end.serialize(output, next_level)?;
+        self.body.start.serialize(output, next_level)?;
+        self.statements.serialize(output, next_level)?;
+        self.body.end.serialize(output, next_level)?;
+        output.push_str(&end_tag);
+        Ok(())
+    }
+}
+
 fn compile_let_statement(
     ctx: &mut Context,
     target: &mut LetStatement,
@@ -1699,6 +1741,75 @@ fn compile_return_statement(
     Ok(current_idx)
 }
 
+fn compile_while_statement(
+    ctx: &mut Context,
+    target: &mut WhileStatement,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<usize, Error> {
+    let mut current_idx = token_index;
+    let cond_start = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
+    if cond_start.value != '(' {
+        return Err(Error::UnexpectedSymbol {
+            symbol: cond_start.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
+    }
+    target.condition.start = cond_start.to_owned();
+    current_idx = compile_expression(ctx, &mut target.expression, tokens, current_idx + 1)?;
+    let cond_end = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
+    if cond_end.value != ')' {
+        return Err(Error::UnexpectedSymbol {
+            symbol: cond_end.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
+    }
+    target.condition.end = cond_end.to_owned();
+    current_idx += 1;
+    let body_start = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
+    if body_start.value != '{' {
+        return Err(Error::UnexpectedSymbol {
+            symbol: body_start.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
+    }
+    target.body.start = body_start.to_owned();
+    current_idx = compile_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
+    let body_end = tokens.list[current_idx]
+        .as_any()
+        .downcast_ref::<Symbol>()
+        .unwrap();
+    if body_end.value != '}' {
+        return Err(Error::UnexpectedSymbol {
+            symbol: body_end.value,
+            index: current_idx,
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        });
+    }
+    target.body.end = body_end.to_owned();
+    Ok(current_idx + 1)
+}
+
 fn compile_statements(
     ctx: &mut Context,
     target: &mut StatementList,
@@ -1725,12 +1836,11 @@ fn compile_statements(
                         target.list.push(Box::new(i));
                     }
                     KeywordType::While => {
-                        return Err(Error::NotImplemented {
-                            index: current_idx,
-                            file: file!(),
-                            line: line!(),
-                            column: column!(),
-                        });
+                        let mut w = WhileStatement::new();
+                        w.keyword = k.to_owned();
+                        current_idx =
+                            compile_while_statement(ctx, &mut w, tokens, current_idx + 1)?;
+                        target.list.push(Box::new(w));
                     }
                     KeywordType::Do => {
                         let mut d = DoStatement::new();
