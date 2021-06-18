@@ -261,11 +261,8 @@ impl Node for ParameterList {
     }
 }
 
-fn get_symbol(tokens: &TokenList, index: usize) -> &Symbol {
-    tokens.list[index]
-        .as_any()
-        .downcast_ref::<Symbol>()
-        .unwrap()
+fn get_token<T: 'static>(tokens: &TokenList, index: usize) -> &T {
+    tokens.list[index].as_any().downcast_ref::<T>().unwrap()
 }
 
 fn compile_parameter_list(
@@ -275,7 +272,7 @@ fn compile_parameter_list(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let s = get_symbol(tokens, current_idx);
+    let s = get_token::<Symbol>(tokens, current_idx);
     if s.value != '(' {
         return Err(Error::UnexpectedSymbol {
             symbol: s.value,
@@ -400,7 +397,7 @@ fn compile_subroutine_body(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let s = get_symbol(tokens, current_idx);
+    let s = get_token::<Symbol>(tokens, current_idx);
     if s.value != '{' {
         return Err(Error::UnexpectedSymbol {
             symbol: s.value,
@@ -532,13 +529,9 @@ fn compile_var_dec(
     let mut current_idx = token_index;
     target.var_type = compile_type(ctx, &tokens.list[current_idx], current_idx)?.boxed_clone();
     current_idx += 1;
-    target.names.push(
-        tokens.list[current_idx]
-            .as_any()
-            .downcast_ref::<Identifier>()
-            .unwrap()
-            .to_owned(),
-    );
+    target
+        .names
+        .push(get_token::<Identifier>(tokens, current_idx).to_owned());
     current_idx += 1;
     // if next token is delimiter
     loop {
@@ -557,13 +550,9 @@ fn compile_var_dec(
                         // We found a delimiter so we read another varName
                         target.delimiter.push(s.to_owned());
                         current_idx += 1;
-                        target.names.push(
-                            tokens.list[current_idx]
-                                .as_any()
-                                .downcast_ref::<Identifier>()
-                                .unwrap()
-                                .to_owned(),
-                        );
+                        target
+                            .names
+                            .push(get_token::<Identifier>(tokens, current_idx).to_owned());
                         current_idx += 1;
                     }
                     _other => {
@@ -842,7 +831,7 @@ fn compile_expression(
                         exp.block.start = s.to_owned();
                         current_idx =
                             compile_expression(ctx, &mut exp.expression, tokens, current_idx + 1)?;
-                        let end = get_symbol(tokens, current_idx);
+                        let end = get_token::<Symbol>(tokens, current_idx);
                         if end.value != ')' {
                             return Err(Error::UnexpectedSymbol {
                                 symbol: end.value,
@@ -1361,14 +1350,10 @@ fn compile_let_statement(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.var_name = tokens.list[current_idx]
-        .as_any()
-        .downcast_ref::<Identifier>()
-        .unwrap()
-        .to_owned();
+    target.var_name = get_token::<Identifier>(tokens, current_idx).to_owned();
     current_idx += 1;
     loop {
-        let s = get_symbol(tokens, current_idx);
+        let s = get_token::<Symbol>(tokens, current_idx);
         match s.value {
             ';' => {
                 // Reached end of let statement
@@ -1382,7 +1367,7 @@ fn compile_let_statement(
                 arr.block.start = s.to_owned();
                 current_idx =
                     compile_expression(ctx, &mut arr.expression, tokens, current_idx + 1)?;
-                let end_token = get_symbol(tokens, current_idx);
+                let end_token = get_token::<Symbol>(tokens, current_idx);
                 if end_token.value != ']' {
                     return Err(Error::UnexpectedSymbol {
                         symbol: end_token.value,
@@ -1423,7 +1408,7 @@ fn compile_else_block(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let block_start = get_symbol(tokens, current_idx);
+    let block_start = get_token::<Symbol>(tokens, current_idx);
     if block_start.value != '{' {
         return Err(Error::UnexpectedSymbol {
             symbol: block_start.value,
@@ -1435,7 +1420,7 @@ fn compile_else_block(
     }
     target.statement_block.start = block_start.to_owned();
     current_idx = compile_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
-    let block_end = get_symbol(tokens, current_idx);
+    let block_end = get_token::<Symbol>(tokens, current_idx);
     if block_end.value != '}' {
         return Err(Error::UnexpectedSymbol {
             symbol: block_end.value,
@@ -1456,7 +1441,7 @@ fn compile_if_statement(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let cond_start = get_symbol(tokens, current_idx);
+    let cond_start = get_token::<Symbol>(tokens, current_idx);
     if cond_start.value != '(' {
         return Err(Error::UnexpectedSymbol {
             symbol: cond_start.value,
@@ -1468,7 +1453,7 @@ fn compile_if_statement(
     }
     target.cond_block.start = cond_start.to_owned();
     current_idx = compile_expression(ctx, &mut target.condition, tokens, current_idx + 1)?;
-    let cond_end = get_symbol(tokens, current_idx);
+    let cond_end = get_token::<Symbol>(tokens, current_idx);
     if cond_end.value != ')' {
         return Err(Error::UnexpectedSymbol {
             symbol: cond_end.value,
@@ -1480,7 +1465,7 @@ fn compile_if_statement(
     }
     target.cond_block.end = cond_end.to_owned();
     current_idx += 1;
-    let body_start = get_symbol(tokens, current_idx);
+    let body_start = get_token::<Symbol>(tokens, current_idx);
     if body_start.value != '{' {
         return Err(Error::UnexpectedSymbol {
             symbol: body_start.value,
@@ -1492,7 +1477,7 @@ fn compile_if_statement(
     }
     target.statement_block.start = body_start.to_owned();
     current_idx = compile_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
-    let body_end = get_symbol(tokens, current_idx);
+    let body_end = get_token::<Symbol>(tokens, current_idx);
     if body_end.value != '}' {
         return Err(Error::UnexpectedSymbol {
             symbol: body_end.value,
@@ -1531,13 +1516,10 @@ fn compile_subroutine_call(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let source = tokens.list[current_idx]
-        .as_any()
-        .downcast_ref::<Identifier>()
-        .unwrap();
+    let source = get_token::<Identifier>(tokens, current_idx);
     current_idx += 1;
     // parsing branches depending on next symbol
-    let next = get_symbol(tokens, current_idx);
+    let next = get_token::<Symbol>(tokens, current_idx);
     match next.value {
         '(' => {
             // function call
@@ -1545,7 +1527,7 @@ fn compile_subroutine_call(
             f.name = source.to_owned();
             f.parameter_block.start = next.to_owned();
             current_idx = compile_expression_list(ctx, &mut f.list, tokens, current_idx + 1)?;
-            let end_token = get_symbol(tokens, current_idx);
+            let end_token = get_token::<Symbol>(tokens, current_idx);
             if end_token.value != ')' {
                 return Err(Error::UnexpectedSymbol {
                     symbol: end_token.value,
@@ -1565,13 +1547,9 @@ fn compile_subroutine_call(
             m.source_name = source.to_owned();
             m.dot = next.to_owned();
             current_idx += 1;
-            m.method_name = tokens.list[current_idx]
-                .as_any()
-                .downcast_ref::<Identifier>()
-                .unwrap()
-                .to_owned();
+            m.method_name = get_token::<Identifier>(tokens, current_idx).to_owned();
             current_idx += 1;
-            let start = get_symbol(tokens, current_idx);
+            let start = get_token::<Symbol>(tokens, current_idx);
             if start.value != '(' {
                 return Err(Error::UnexpectedSymbol {
                     symbol: start.value,
@@ -1583,7 +1561,7 @@ fn compile_subroutine_call(
             }
             m.parameter.start = start.to_owned();
             current_idx = compile_expression_list(ctx, &mut m.expression, tokens, current_idx + 1)?;
-            let end = get_symbol(tokens, current_idx);
+            let end = get_token::<Symbol>(tokens, current_idx);
             if end.value != ')' {
                 return Err(Error::UnexpectedSymbol {
                     symbol: end.value,
@@ -1618,7 +1596,7 @@ fn compile_do_statement(
 ) -> Result<usize, Error> {
     let current_idx =
         compile_subroutine_call(ctx, &mut target.subroutine_call, tokens, token_index)?;
-    let end_token = get_symbol(tokens, current_idx);
+    let end_token = get_token::<Symbol>(tokens, current_idx);
     if end_token.value != ';' {
         return Err(Error::UnexpectedSymbol {
             symbol: end_token.value,
@@ -1654,7 +1632,7 @@ fn compile_return_statement(
                     let mut e = Expression::new();
                     current_idx = compile_expression(ctx, &mut e, tokens, current_idx).unwrap();
                     target.expression = Some(e);
-                    let end = get_symbol(tokens, current_idx);
+                    let end = get_token::<Symbol>(tokens, current_idx);
                     if end.value != ';' {
                         return Err(Error::UnexpectedSymbol {
                             symbol: end.value,
@@ -1674,7 +1652,7 @@ fn compile_return_statement(
             let mut e = Expression::new();
             current_idx = compile_expression(ctx, &mut e, tokens, current_idx).unwrap();
             target.expression = Some(e);
-            let end = get_symbol(tokens, current_idx);
+            let end = get_token::<Symbol>(tokens, current_idx);
             if end.value != ';' {
                 return Err(Error::UnexpectedSymbol {
                     symbol: end.value,
@@ -1698,7 +1676,7 @@ fn compile_while_statement(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let cond_start = get_symbol(tokens, current_idx);
+    let cond_start = get_token::<Symbol>(tokens, current_idx);
     if cond_start.value != '(' {
         return Err(Error::UnexpectedSymbol {
             symbol: cond_start.value,
@@ -1710,7 +1688,7 @@ fn compile_while_statement(
     }
     target.condition.start = cond_start.to_owned();
     current_idx = compile_expression(ctx, &mut target.expression, tokens, current_idx + 1)?;
-    let cond_end = get_symbol(tokens, current_idx);
+    let cond_end = get_token::<Symbol>(tokens, current_idx);
     if cond_end.value != ')' {
         return Err(Error::UnexpectedSymbol {
             symbol: cond_end.value,
@@ -1722,7 +1700,7 @@ fn compile_while_statement(
     }
     target.condition.end = cond_end.to_owned();
     current_idx += 1;
-    let body_start = get_symbol(tokens, current_idx);
+    let body_start = get_token::<Symbol>(tokens, current_idx);
     if body_start.value != '{' {
         return Err(Error::UnexpectedSymbol {
             symbol: body_start.value,
@@ -1734,7 +1712,7 @@ fn compile_while_statement(
     }
     target.body.start = body_start.to_owned();
     current_idx = compile_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
-    let body_end = get_symbol(tokens, current_idx);
+    let body_end = get_token::<Symbol>(tokens, current_idx);
     if body_end.value != '}' {
         return Err(Error::UnexpectedSymbol {
             symbol: body_end.value,
@@ -1868,11 +1846,7 @@ fn compile_subroutine_dec(
     };
     target.return_type = rt.boxed_clone();
     current_idx += 1;
-    target.name = tokens.list[current_idx]
-        .as_any()
-        .downcast_ref::<Identifier>()
-        .unwrap()
-        .to_owned();
+    target.name = get_token::<Identifier>(tokens, current_idx).to_owned();
     current_idx = compile_parameter_list(ctx, &mut target.param_list, tokens, current_idx + 1)?;
     current_idx = compile_subroutine_body(ctx, &mut target.body, tokens, current_idx)?;
     Ok(current_idx)
@@ -1976,10 +1950,7 @@ fn compile_class(
     ctx.class_names.push(name.value.clone()); // store name in type table
     class.name = name.clone();
     current_idx += 1;
-    let open_brace = tokens.list[current_idx]
-        .as_any()
-        .downcast_ref::<Symbol>()
-        .unwrap();
+    let open_brace = get_token::<Symbol>(tokens, current_idx);
     if open_brace.value != '{' {
         return Err(Error::UnexpectedSymbol {
             symbol: open_brace.value,
