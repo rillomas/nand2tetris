@@ -644,9 +644,8 @@ struct KeywordTerm {
 struct VarNameTerm {
     name: Identifier,
 }
-
 #[derive(Debug)]
-struct ExpressionInParenthesis {
+struct ExpressionInParenthesisTerm {
     expression: Expression,
     block: Block,
 }
@@ -655,6 +654,12 @@ struct ExpressionInParenthesis {
 struct ArrayVarTerm {
     name: Identifier,
     arr: ArrayExpression,
+}
+
+#[derive(Debug)]
+struct UnaryOpTerm {
+    op: Symbol,
+    term: Box<dyn Term>,
 }
 
 impl ArrayVarTerm {
@@ -666,9 +671,9 @@ impl ArrayVarTerm {
     }
 }
 
-impl ExpressionInParenthesis {
-    fn new() -> ExpressionInParenthesis {
-        ExpressionInParenthesis {
+impl ExpressionInParenthesisTerm {
+    fn new() -> ExpressionInParenthesisTerm {
+        ExpressionInParenthesisTerm {
             expression: Expression::new(),
             block: Block::new(),
         }
@@ -715,7 +720,7 @@ impl Term for KeywordTerm {
     }
 }
 
-impl Term for ExpressionInParenthesis {
+impl Term for ExpressionInParenthesisTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         Ok(())
     }
@@ -736,15 +741,214 @@ impl Term for ArrayVarTerm {
     }
 }
 
+impl Term for UnaryOpTerm {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = TERM;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.op.serialize(output, next_level)?;
+        self.term.serialize(output, next_level)?;
+        output.push_str(&end_tag);
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 struct Op {
     symbol: Symbol,
 }
 
-impl Op {
+impl Term for Op {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         self.symbol.serialize(output, indent_level)?;
         Ok(())
+    }
+}
+
+fn compile_term(
+    ctx: &mut Context,
+    tokens: &TokenList,
+    token_index: usize,
+) -> Result<(Box<dyn Term>, usize), Error> {
+    let mut current_idx = token_index;
+    let t = &tokens.list[current_idx];
+    match t.token() {
+        TokenType::IntegerConst => {
+            let i = IntegerTerm {
+                integer: t
+                    .as_any()
+                    .downcast_ref::<IntegerConstant>()
+                    .unwrap()
+                    .to_owned(),
+            };
+            Ok((Box::new(i), current_idx + 1))
+        }
+        TokenType::StringConst => {
+            let s = StringTerm {
+                string: t
+                    .as_any()
+                    .downcast_ref::<StringConstant>()
+                    .unwrap()
+                    .to_owned(),
+            };
+            Ok((Box::new(s), current_idx + 1))
+        }
+        TokenType::Keyword => {
+            let kw = t.as_any().downcast_ref::<Keyword>().unwrap();
+            match kw.keyword() {
+                KeywordType::This | KeywordType::Null | KeywordType::True | KeywordType::False => {
+                    // KeywordConstant
+                    let k = KeywordTerm {
+                        keyword: kw.to_owned(),
+                    };
+                    Ok((Box::new(k), current_idx + 1))
+                }
+                _other => Err(Error::UnexpectedKeyword(_other)),
+            }
+        }
+        TokenType::Identifier => {
+            let id = t.as_any().downcast_ref::<Identifier>().unwrap();
+            current_idx += 1;
+            // Check next token to identify which term we have
+            let next = &tokens.list[current_idx];
+            match next.token() {
+                TokenType::Symbol => {
+                    let s = next.as_any().downcast_ref::<Symbol>().unwrap();
+                    match s.value {
+                        '[' => {
+                            // compile array
+                            let mut arr = ArrayVarTerm::new();
+                            arr.name = id.to_owned();
+                            arr.arr.block.start = s.to_owned();
+                            current_idx = compile_expression(
+                                ctx,
+                                &mut arr.arr.expression,
+                                tokens,
+                                current_idx + 1,
+                            )?;
+                            let close_brace = get_token::<Symbol>(tokens, current_idx);
+                            if close_brace.value != ']' {
+                                return Err(Error::UnexpectedSymbol {
+                                    symbol: close_brace.value,
+                                    index: current_idx,
+                                    file: file!(),
+                                    line: line!(),
+                                    column: column!(),
+                                });
+                            }
+                            arr.arr.block.end = close_brace.to_owned();
+                            Ok((Box::new(arr), current_idx + 1))
+                        }
+                        '(' => {
+                            // compile subroutineCall (functionCall)
+                            return Err(Error::NotImplemented {
+                                index: current_idx,
+                                file: file!(),
+                                line: line!(),
+                                column: column!(),
+                            });
+                        }
+                        '.' => {
+                            // compile subroutineCall (methodCall)
+                            let mut mc = MethodCall::new();
+                            mc.source_name = id.to_owned();
+                            mc.dot = s.to_owned();
+                            current_idx += 1;
+                            let subroutine = get_token::<Identifier>(tokens, current_idx);
+                            mc.method_name = subroutine.to_owned();
+                            current_idx += 1;
+                            let open_paren = get_token::<Symbol>(tokens, current_idx);
+                            if open_paren.value != '(' {
+                                return Err(Error::UnexpectedSymbol {
+                                    symbol: open_paren.value,
+                                    index: current_idx,
+                                    file: file!(),
+                                    line: line!(),
+                                    column: column!(),
+                                });
+                            }
+                            mc.parameter.start = open_paren.to_owned();
+                            current_idx = compile_expression_list(
+                                ctx,
+                                &mut mc.expression,
+                                tokens,
+                                current_idx + 1,
+                            )?;
+                            let close_paren = get_token::<Symbol>(tokens, current_idx);
+                            if close_paren.value != ')' {
+                                return Err(Error::UnexpectedSymbol {
+                                    symbol: close_paren.value,
+                                    index: current_idx,
+                                    file: file!(),
+                                    line: line!(),
+                                    column: column!(),
+                                });
+                            }
+                            mc.parameter.end = close_paren.to_owned();
+                            let mut sc = SubroutineCall::new();
+                            sc.method = Some(mc);
+                            Ok((Box::new(sc), current_idx + 1))
+                        }
+                        _other => {
+                            // If we get any other symbol the first identifier is a varName
+                            let t = VarNameTerm {
+                                name: id.to_owned(),
+                            };
+                            Ok((Box::new(t), current_idx))
+                        }
+                    }
+                }
+                _other => {
+                    // If we get any other token type the first identifier is a varName
+                    let t = VarNameTerm {
+                        name: id.to_owned(),
+                    };
+                    Ok((Box::new(t), current_idx))
+                }
+            }
+        }
+        TokenType::Symbol => {
+            let s = t.as_any().downcast_ref::<Symbol>().unwrap();
+            match s.value {
+                '(' => {
+                    let mut exp = ExpressionInParenthesisTerm::new();
+                    exp.block.start = s.to_owned();
+                    current_idx =
+                        compile_expression(ctx, &mut exp.expression, tokens, current_idx + 1)?;
+                    let end = get_token::<Symbol>(tokens, current_idx);
+                    if end.value != ')' {
+                        return Err(Error::UnexpectedSymbol {
+                            symbol: end.value,
+                            index: current_idx,
+                            file: file!(),
+                            line: line!(),
+                            column: column!(),
+                        });
+                    }
+                    exp.block.end = end.to_owned();
+                    Ok((Box::new(exp), current_idx + 1))
+                }
+                '-' | '~' => {
+                    // Unary op + term
+                    let (term, idx) = compile_term(ctx, tokens, current_idx + 1)?;
+                    let uot = UnaryOpTerm {
+                        op: s.to_owned(),
+                        term: term,
+                    };
+                    Ok((Box::new(uot), idx))
+                }
+                _other => Err(Error::UnexpectedSymbol {
+                    symbol: _other,
+                    index: current_idx,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                }),
+            }
+        }
     }
 }
 
@@ -758,197 +962,61 @@ fn compile_expression(
     loop {
         let t = &tokens.list[current_idx];
         match t.token() {
-            TokenType::IntegerConst => {
-                let i = IntegerTerm {
-                    integer: t
-                        .as_any()
-                        .downcast_ref::<IntegerConstant>()
-                        .unwrap()
-                        .to_owned(),
-                };
-                target.terms.push(Box::new(i));
-                current_idx += 1;
-            }
-            TokenType::StringConst => {
-                let s = StringTerm {
-                    string: t
-                        .as_any()
-                        .downcast_ref::<StringConstant>()
-                        .unwrap()
-                        .to_owned(),
-                };
-                target.terms.push(Box::new(s));
-                current_idx += 1;
-            }
-            TokenType::Keyword => {
-                let kw = t.as_any().downcast_ref::<Keyword>().unwrap();
-                match kw.keyword() {
-                    KeywordType::This
-                    | KeywordType::Null
-                    | KeywordType::True
-                    | KeywordType::False => {
-                        // KeywordConstant
-                        let k = KeywordTerm {
-                            keyword: kw.to_owned(),
-                        };
-                        target.terms.push(Box::new(k));
-                        current_idx += 1;
-                    }
-                    _other => {
-                        return Err(Error::UnexpectedKeyword(_other));
-                    }
-                }
-            }
-            TokenType::Identifier => {
-                let id = t.as_any().downcast_ref::<Identifier>().unwrap();
-                current_idx += 1;
-                // Check next token to identify which term we have
-                let next = &tokens.list[current_idx];
-                match next.token() {
-                    TokenType::Symbol => {
-                        let s = next.as_any().downcast_ref::<Symbol>().unwrap();
-                        match s.value {
-                            '[' => {
-                                // compile array
-                                let mut arr = ArrayVarTerm::new();
-                                arr.name = id.to_owned();
-                                arr.arr.block.start = s.to_owned();
-                                current_idx = compile_expression(
-                                    ctx,
-                                    &mut arr.arr.expression,
-                                    tokens,
-                                    current_idx + 1,
-                                )?;
-                                let close_brace = get_token::<Symbol>(tokens, current_idx);
-                                if close_brace.value != ']' {
-                                    return Err(Error::UnexpectedSymbol {
-                                        symbol: close_brace.value,
-                                        index: current_idx,
-                                        file: file!(),
-                                        line: line!(),
-                                        column: column!(),
-                                    });
-                                }
-                                arr.arr.block.end = close_brace.to_owned();
-                                current_idx += 1;
-                                target.terms.push(Box::new(arr));
-                            }
-                            '(' => {
-                                // compile subroutineCall (functionCall)
-                                return Err(Error::NotImplemented {
-                                    index: current_idx,
-                                    file: file!(),
-                                    line: line!(),
-                                    column: column!(),
-                                });
-                            }
-                            '.' => {
-                                // compile subroutineCall (methodCall)
-                                let mut mc = MethodCall::new();
-                                mc.source_name = id.to_owned();
-                                mc.dot = s.to_owned();
-                                current_idx += 1;
-                                let subroutine = get_token::<Identifier>(tokens, current_idx);
-                                mc.method_name = subroutine.to_owned();
-                                current_idx += 1;
-                                let open_paren = get_token::<Symbol>(tokens, current_idx);
-                                if open_paren.value != '(' {
-                                    return Err(Error::UnexpectedSymbol {
-                                        symbol: open_paren.value,
-                                        index: current_idx,
-                                        file: file!(),
-                                        line: line!(),
-                                        column: column!(),
-                                    });
-                                }
-                                mc.parameter.start = open_paren.to_owned();
-                                current_idx = compile_expression_list(
-                                    ctx,
-                                    &mut mc.expression,
-                                    tokens,
-                                    current_idx + 1,
-                                )?;
-                                let close_paren = get_token::<Symbol>(tokens, current_idx);
-                                if close_paren.value != ')' {
-                                    return Err(Error::UnexpectedSymbol {
-                                        symbol: close_paren.value,
-                                        index: current_idx,
-                                        file: file!(),
-                                        line: line!(),
-                                        column: column!(),
-                                    });
-                                }
-                                mc.parameter.end = close_paren.to_owned();
-                                current_idx += 1;
-                                let mut sc = SubroutineCall::new();
-                                sc.method = Some(mc);
-                                target.terms.push(Box::new(sc));
-                            }
-                            _other => {
-                                // If we get any other symbol the first identifier is a varName
-                                let t = VarNameTerm {
-                                    name: id.to_owned(),
-                                };
-                                target.terms.push(Box::new(t));
-                            }
-                        }
-                    }
-                    _other => {
-                        // If we get any other token type the first identifier is a varName
-                        let t = VarNameTerm {
-                            name: id.to_owned(),
-                        };
-                        target.terms.push(Box::new(t));
-                    }
-                }
-            }
             TokenType::Symbol => {
                 let s = t.as_any().downcast_ref::<Symbol>().unwrap();
                 match s.value {
-                    '(' => {
-                        let mut exp = ExpressionInParenthesis::new();
-                        exp.block.start = s.to_owned();
-                        current_idx =
-                            compile_expression(ctx, &mut exp.expression, tokens, current_idx + 1)?;
-                        let end = get_token::<Symbol>(tokens, current_idx);
-                        if end.value != ')' {
-                            return Err(Error::UnexpectedSymbol {
-                                symbol: end.value,
-                                index: current_idx,
-                                file: file!(),
-                                line: line!(),
-                                column: column!(),
-                            });
+                    '-' => {
+                        // May be a unary op or a normal op
+                        if target.terms.is_empty() {
+                            // If no term appear before this we assume it is a unary op
+                            let (term, idx) = compile_term(ctx, tokens, current_idx + 1)?;
+                            let uot = UnaryOpTerm {
+                                op: s.to_owned(),
+                                term: term,
+                            };
+                            target.terms.push(Box::new(uot));
+                            current_idx = idx;
+                        } else {
+                            // If we have another term before this we assume a normal op
+                            let op = Op {
+                                symbol: s.to_owned(),
+                            };
+                            target.terms.push(Box::new(op));
+                            current_idx += 1;
                         }
-                        exp.block.end = end.to_owned();
-                        target.terms.push(Box::new(exp));
+                    }
+                    '~' => {
+                        // Unary op + term
+                        let (term, idx) = compile_term(ctx, tokens, current_idx + 1)?;
+                        let uot = UnaryOpTerm {
+                            op: s.to_owned(),
+                            term: term,
+                        };
+                        target.terms.push(Box::new(uot));
+                        current_idx = idx;
+                    }
+                    '+' | '*' | '/' | '&' | '|' | '<' | '>' | '=' => {
+                        let op = Op {
+                            symbol: s.to_owned(),
+                        };
+                        target.terms.push(Box::new(op));
                         current_idx += 1;
                     }
-                    '-' | '~' => {
-                        // Unary op + term
-                        return Err(Error::NotImplemented {
-                            index: current_idx,
-                            file: file!(),
-                            line: line!(),
-                            column: column!(),
-                        });
-                    }
-                    // '+' | '-' | *' | '/' | '&' | '|' | '<' | '>' | '=' => {
-                    // }
                     ')' | ']' | ';' | ',' => {
                         // We've arrived to the end of parenthesis, array expression, line, or delimieter between expressions
                         break;
                     }
                     _other => {
-                        return Err(Error::UnexpectedSymbol {
-                            symbol: _other,
-                            index: current_idx,
-                            file: file!(),
-                            line: line!(),
-                            column: column!(),
-                        });
+                        let (term, idx) = compile_term(ctx, tokens, current_idx)?;
+                        target.terms.push(term);
+                        current_idx = idx;
                     }
                 }
+            }
+            _other => {
+                let (term, idx) = compile_term(ctx, tokens, current_idx)?;
+                target.terms.push(term);
+                current_idx = idx;
             }
         }
     }
