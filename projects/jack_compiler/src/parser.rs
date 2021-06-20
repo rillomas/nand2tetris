@@ -41,6 +41,13 @@ pub enum Error {
         line: u32,
         column: u32,
     },
+    #[error(
+        "Not all tokens were consumed: token length: {token_length} token index: {current_index}"
+    )]
+    TokenLeftover {
+        token_length: usize,
+        current_index: usize,
+    },
     #[error("{file} {line}:{column} This path is not implemented yet")]
     NotImplemented {
         index: usize,
@@ -2090,6 +2097,7 @@ fn compile_class_var_dec(
                     ';' => {
                         // We got end of node symbol so we store it and go next
                         target.end_symbol = s.to_owned();
+                        current_idx += 1;
                         break;
                     }
                     _other => {
@@ -2131,10 +2139,9 @@ fn compile_class(
 ) -> Result<usize, Error> {
     // Check tokens from the head to see if they are valid class tokens
     let mut current_idx = token_index;
-    let name_token = &tokens.list[current_idx];
-    let name = name_token.as_any().downcast_ref::<Identifier>().unwrap();
-    ctx.class_names.push(name.value.clone()); // store name in type table
-    class.name = name.clone();
+    let name = get_token::<Identifier>(tokens, current_idx);
+    ctx.class_names.push(name.value.to_owned()); // store name in type table
+    class.name = name.to_owned();
     current_idx += 1;
     let open_brace = get_token::<Symbol>(tokens, current_idx);
     if open_brace.value != '{' {
@@ -2153,20 +2160,19 @@ fn compile_class(
         let t = &tokens.list[current_idx];
         match t.token() {
             TokenType::Symbol => {
-                let close_brace = t.as_any().downcast_ref::<Symbol>();
-
-                // We ignore any errors for now because we want to parse as much as possible
-                if close_brace.is_some() {
-                    let s = close_brace.unwrap();
-                    if s.value == '}' {
-                        class.end_symbol = s.clone();
-                        // Once we reach close brace we exit
-                        break;
-                    }
-                    // We ignore invalid symbols for now
-                    // return Err(String::from("Expected '}'"));
+                let close_brace = t.as_any().downcast_ref::<Symbol>().unwrap();
+                if close_brace.value != '}' {
+                    return Err(Error::UnexpectedSymbol {
+                        symbol: close_brace.value,
+                        index: current_idx,
+                        file: file!(),
+                        line: line!(),
+                        column: column!(),
+                    });
                 }
-                current_idx += 1;
+                class.end_symbol = close_brace.clone();
+                // Once we reach close brace we exit
+                break;
             }
             TokenType::Keyword => {
                 // We should be looking for keywords indicating classVarDec or subroutineDec
@@ -2184,15 +2190,19 @@ fn compile_class(
                             compile_subroutine_dec(ctx, &mut sd, tokens, current_idx + 1)?;
                         class.add_child(Box::new(sd))?;
                     }
-                    _ => {
-                        // return Err(format!("Got unexpected keyword {}", keyword.value));
-                        current_idx += 1;
+                    _other => {
+                        return Err(Error::UnexpectedKeyword(keyword.keyword()));
                     }
                 }
             }
             _other => {
-                // return Err(String::from("Expected symbol or keyword"));
-                current_idx += 1;
+                return Err(Error::UnexpectedToken {
+                    token: t.boxed_clone(),
+                    index: current_idx,
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                });
             }
         }
     }
@@ -2206,41 +2216,19 @@ pub fn parse_file(
     let tokens = generate_token_list(file_reader);
     let mut ctx = Context::new();
     let mut current_index = 0;
+    let keyword = get_token::<Keyword>(&tokens, current_index);
+    if !matches!(keyword.keyword(), KeywordType::Class) {
+        return Err(Error::UnexpectedKeyword(keyword.keyword()));
+    }
     let mut class = Class::new();
-    loop {
-        if current_index >= tokens.list.len() {
-            // Exit when we finished processing all tokens
-            break;
-        }
-        let t = &tokens.list[current_index];
-        match t.token() {
-            TokenType::Keyword => {
-                let keyword = t.as_any().downcast_ref::<Keyword>().unwrap();
-                // println!("keyword: {:?}", keyword);
-                match keyword.keyword() {
-                    KeywordType::Class => {
-                        class.prefix = keyword.clone();
-                        current_index =
-                            compile_class(&mut ctx, &mut class, &tokens, current_index + 1)?;
-                    }
-                    _other => {
-                        current_index += 1;
-                    }
-                }
-            }
-            TokenType::Symbol => {
-                current_index += 1;
-            }
-            TokenType::Identifier => {
-                current_index += 1;
-            }
-            TokenType::IntegerConst => {
-                current_index += 1;
-            }
-            TokenType::StringConst => {
-                current_index += 1;
-            }
-        }
+    class.prefix = keyword.clone();
+    current_index = compile_class(&mut ctx, &mut class, &tokens, current_index + 1)?;
+    if current_index != tokens.list.len() - 1 {
+        // All tokens should be consumed
+        return Err(Error::TokenLeftover {
+            token_length: tokens.list.len(),
+            current_index: current_index,
+        });
     }
     Ok(Box::new(class))
 }
