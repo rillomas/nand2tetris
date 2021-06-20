@@ -601,8 +601,9 @@ impl Expression {
                 "Expression must have one or more terms",
             )));
         } else if op_len != (term_len - 1) {
-            return Err(SerializeError::UnexpectedState(String::from(
-                "Length of ops should be one less than length of terms",
+            return Err(SerializeError::UnexpectedState(format!(
+                "Length of ops should be one less than length of terms: terms: {} ops: {}",
+                term_len, op_len
             )));
         }
         let label = EXPRESSION;
@@ -722,6 +723,16 @@ impl Term for KeywordTerm {
 
 impl Term for ExpressionInParenthesisTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = TERM;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.block.start.serialize(output, next_level)?;
+        self.expression.serialize(output, next_level)?;
+        self.block.end.serialize(output, next_level)?;
+        output.push_str(&end_tag);
         Ok(())
     }
 }
@@ -761,7 +772,7 @@ struct Op {
     symbol: Symbol,
 }
 
-impl Term for Op {
+impl Op {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         self.symbol.serialize(output, indent_level)?;
         Ok(())
@@ -888,8 +899,8 @@ fn compile_term(
                                 });
                             }
                             mc.parameter.end = close_paren.to_owned();
-                            let mut sc = SubroutineCall::new();
-                            sc.method = Some(mc);
+                            let mut sc = SubroutineCallTerm::new();
+                            sc.call.method = Some(mc);
                             Ok((Box::new(sc), current_idx + 1))
                         }
                         _other => {
@@ -981,7 +992,7 @@ fn compile_expression(
                             let op = Op {
                                 symbol: s.to_owned(),
                             };
-                            target.terms.push(Box::new(op));
+                            target.ops.push(op);
                             current_idx += 1;
                         }
                     }
@@ -999,7 +1010,7 @@ fn compile_expression(
                         let op = Op {
                             symbol: s.to_owned(),
                         };
-                        target.terms.push(Box::new(op));
+                        target.ops.push(op);
                         current_idx += 1;
                     }
                     ')' | ']' | ';' | ',' => {
@@ -1317,6 +1328,19 @@ impl MethodCall {
 }
 
 #[derive(Debug)]
+struct SubroutineCallTerm {
+    call: SubroutineCall,
+}
+
+impl SubroutineCallTerm {
+    fn new() -> SubroutineCallTerm {
+        SubroutineCallTerm {
+            call: SubroutineCall::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
 struct SubroutineCall {
     function: Option<FunctionCall>,
     method: Option<MethodCall>,
@@ -1328,14 +1352,15 @@ impl SubroutineCall {
             method: None,
         }
     }
-}
-
-impl Term for SubroutineCall {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         if self.function.is_some() && self.method.is_some() {
             // Only one should have a valid value
             return Err(SerializeError::UnexpectedState(String::from(
                 "Got both function call and method call in SubroutineCall",
+            )));
+        } else if self.function.is_none() && self.method.is_none() {
+            return Err(SerializeError::UnexpectedState(String::from(
+                "Content of SubroutineCall not found",
             )));
         }
         if self.function.is_some() {
@@ -1343,12 +1368,25 @@ impl Term for SubroutineCall {
                 .as_ref()
                 .unwrap()
                 .serialize(output, indent_level)?;
-        } else if self.method.is_some() {
+        } else {
             self.method
                 .as_ref()
                 .unwrap()
                 .serialize(output, indent_level)?;
         }
+        Ok(())
+    }
+}
+
+impl Term for SubroutineCallTerm {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = TERM;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        self.call.serialize(output, indent_level + 1)?;
+        output.push_str(&end_tag);
         Ok(())
     }
 }
