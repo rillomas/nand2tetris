@@ -3,6 +3,7 @@ use super::tokenizer::{
     generate_token_list, Identifier, IntegerConstant, Keyword, KeywordType, SerializeError,
     StringConstant, Symbol, Token, TokenList, TokenType, INDENT_STR, NEW_LINE,
 };
+use std::collections::HashMap;
 
 const CLASS_VAR_DEC: &'static str = "classVarDec";
 const SUBROUTINE_DEC: &'static str = "subroutineDec";
@@ -18,6 +19,36 @@ const IF_STATEMENT: &'static str = "ifStatement";
 const WHILE_STATEMENT: &'static str = "whileStatement";
 const EXPRESSION_LIST: &'static str = "expressionList";
 const EXPRESSION: &'static str = "expression";
+
+enum SymbolCategory {
+    Var,
+    Argument,
+    Static,
+    Field,
+    Class,
+    Subroutine,
+}
+
+enum SymbolUsage {
+    Define,
+    Use,
+}
+
+struct SymbolTableEntry {
+    category: SymbolCategory,
+    index: Option<usize>,
+    usage: SymbolUsage,
+}
+
+impl SymbolTableEntry {
+    fn new(category: SymbolCategory, index: Option<usize>, usage: SymbolUsage) -> SymbolTableEntry {
+        SymbolTableEntry {
+            category: category,
+            index: index,
+            usage: usage,
+        }
+    }
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -62,16 +93,28 @@ pub trait Node {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
 }
 
+struct SymbolTable {
+    class: HashMap<String, SymbolTableEntry>,
+    subroutine: HashMap<String, SymbolTableEntry>,
+}
+
+impl SymbolTable {
+    fn new() -> SymbolTable {
+        SymbolTable {
+            class: HashMap::new(),
+            subroutine: HashMap::new(),
+        }
+    }
+}
+
 struct Context {
-    /// Names of all user defined classes.
-    /// Used to resolve types
-    class_names: Vec<String>,
+    symbol_table: SymbolTable,
 }
 
 impl Context {
     fn new() -> Context {
         Context {
-            class_names: Vec::new(),
+            symbol_table: SymbolTable::new(),
         }
     }
 }
@@ -2022,7 +2065,7 @@ fn compile_subroutine_dec(
         }
         TokenType::Identifier => {
             let id = token.as_any().downcast_ref::<Identifier>().unwrap();
-            if !ctx.class_names.contains(&id.value) {
+            if !ctx.symbol_table.class.contains_key(&id.value) {
                 return Err(Error::UnknownType(id.value.clone()));
             }
             id
@@ -2040,6 +2083,10 @@ fn compile_subroutine_dec(
     target.return_type = rt.boxed_clone();
     current_idx += 1;
     target.name = get_token::<Identifier>(tokens, current_idx).to_owned();
+    ctx.symbol_table.class.insert(
+        target.name.value.to_owned(),
+        SymbolTableEntry::new(SymbolCategory::Subroutine, None, SymbolUsage::Define),
+    );
     current_idx = compile_parameter_list(ctx, &mut target.param_list, tokens, current_idx + 1)?;
     current_idx = compile_subroutine_body(ctx, &mut target.body, tokens, current_idx)?;
     Ok(current_idx)
@@ -2140,7 +2187,10 @@ fn compile_class(
     // Check tokens from the head to see if they are valid class tokens
     let mut current_idx = token_index;
     let name = get_token::<Identifier>(tokens, current_idx);
-    ctx.class_names.push(name.value.to_owned()); // store name in type table
+    ctx.symbol_table.class.insert(
+        name.value.to_owned(),
+        SymbolTableEntry::new(SymbolCategory::Class, None, SymbolUsage::Define),
+    );
     class.name = name.to_owned();
     current_idx += 1;
     let open_brace = get_token::<Symbol>(tokens, current_idx);
