@@ -46,13 +46,13 @@ fn test_parser(root: &PathBuf, dir: &str) {
         //     },
         //     _t => _t
         // }
-        let tree = parser::parse_file(&mut io.input)
+        let class = parser::parse_file(&mut io.input)
             .expect(format!("Parse failed at {}", io.input_file.display()).as_str());
 
         // Read Golden XML results and compare with results
         let golden_xml = std::fs::read_to_string(golden_file_path).unwrap();
         let mut xml = String::from("");
-        tree.serialize(&mut xml, 0).unwrap();
+        class.serialize(&mut xml, 0).unwrap();
         // println!("{}", golden_xml);
         // println!("{}", xml);
         assert_eq!(golden_xml, xml);

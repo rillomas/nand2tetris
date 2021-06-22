@@ -88,8 +88,8 @@ pub enum Error {
     },
 }
 
-pub trait Node {
-    /// Serialize node at the specified indent level
+pub trait Declaration {
+    /// Serialize declaration at the specified indent level
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
 }
 
@@ -119,12 +119,12 @@ impl Context {
     }
 }
 
-struct Class {
+pub struct Class {
     prefix: Keyword,
     name: Identifier,
     begin_symbol: Symbol,
     end_symbol: Symbol,
-    children: Vec<Box<dyn Node>>,
+    children: Vec<Box<dyn Declaration>>,
 }
 
 impl Class {
@@ -138,13 +138,15 @@ impl Class {
         }
     }
 
-    fn add_child(&mut self, node: Box<dyn Node>) -> Result<(), Error> {
+    fn add(&mut self, node: Box<dyn Declaration>) -> Result<(), Error> {
         Ok(self.children.push(node))
     }
-}
 
-impl Node for Class {
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+    pub fn serialize(
+        &self,
+        output: &mut String,
+        indent_level: usize,
+    ) -> Result<(), SerializeError> {
         let label = tokenizer::CLASS;
         let indent = INDENT_STR.repeat(indent_level);
         let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
@@ -183,7 +185,7 @@ impl ClassVarDec {
     }
 }
 
-impl Node for ClassVarDec {
+impl Declaration for ClassVarDec {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         // number of delimiters should be one less than number of vars
         let var_num = self.var_names.len();
@@ -241,7 +243,7 @@ impl SubroutineDec {
     }
 }
 
-impl Node for SubroutineDec {
+impl Declaration for SubroutineDec {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = SUBROUTINE_DEC;
         let indent = INDENT_STR.repeat(indent_level);
@@ -275,9 +277,7 @@ impl ParameterList {
             delimiter: Vec::new(),
         }
     }
-}
 
-impl Node for ParameterList {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let param_len = self.param_type.len();
         let has_param = param_len > 0;
@@ -417,9 +417,7 @@ impl SubroutineBody {
             statements: StatementList::new(),
         }
     }
-}
 
-impl Node for SubroutineBody {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = SUBROUTINE_BODY;
         let indent = INDENT_STR.repeat(indent_level);
@@ -544,9 +542,7 @@ impl VarDec {
     fn has_content(&self) -> bool {
         self.names.len() > 0
     }
-}
 
-impl Node for VarDec {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let var_num = self.names.len();
         assert!(var_num > 0);
@@ -1482,9 +1478,7 @@ impl StatementList {
     fn new() -> StatementList {
         StatementList { list: Vec::new() }
     }
-}
 
-impl Node for StatementList {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = STATEMENTS;
         let indent = INDENT_STR.repeat(indent_level);
@@ -2232,13 +2226,13 @@ fn compile_class(
                         let mut cvd = ClassVarDec::new(keyword.clone());
                         current_idx =
                             compile_class_var_dec(ctx, &mut cvd, tokens, current_idx + 1)?;
-                        class.add_child(Box::new(cvd))?;
+                        class.add(Box::new(cvd))?;
                     }
                     KeywordType::Constructor | KeywordType::Function | KeywordType::Method => {
                         let mut sd = SubroutineDec::new(keyword.clone());
                         current_idx =
                             compile_subroutine_dec(ctx, &mut sd, tokens, current_idx + 1)?;
-                        class.add_child(Box::new(sd))?;
+                        class.add(Box::new(sd))?;
                     }
                     _other => {
                         return Err(Error::UnexpectedKeyword(keyword.keyword()));
@@ -2262,7 +2256,7 @@ fn compile_class(
 /// Parse specified file and generate an internal tree representation
 pub fn parse_file(
     file_reader: &mut std::io::BufReader<std::fs::File>,
-) -> Result<Box<dyn Node>, Error> {
+) -> Result<Box<Class>, Error> {
     let tokens = generate_token_list(file_reader);
     let mut ctx = Context::new();
     let mut current_index = 0;
