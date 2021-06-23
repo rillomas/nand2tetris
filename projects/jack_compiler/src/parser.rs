@@ -20,36 +20,6 @@ const WHILE_STATEMENT: &'static str = "whileStatement";
 const EXPRESSION_LIST: &'static str = "expressionList";
 const EXPRESSION: &'static str = "expression";
 
-enum SymbolCategory {
-    Var,
-    Argument,
-    Static,
-    Field,
-    Class,
-    Subroutine,
-}
-
-enum SymbolUsage {
-    Define,
-    Use,
-}
-
-struct SymbolTableEntry {
-    category: SymbolCategory,
-    index: Option<usize>,
-    usage: SymbolUsage,
-}
-
-impl SymbolTableEntry {
-    fn new(category: SymbolCategory, index: Option<usize>, usage: SymbolUsage) -> SymbolTableEntry {
-        SymbolTableEntry {
-            category: category,
-            index: index,
-            usage: usage,
-        }
-    }
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("{file} {line}:{column} Got unexpected token at {index}: {token:?}")]
@@ -88,35 +58,142 @@ pub enum Error {
     },
 }
 
-pub trait Declaration {
-    /// Serialize declaration at the specified indent level
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
+#[derive(Debug)]
+enum SymbolCategory {
+    Var,
+    Argument,
+    Static,
+    Field,
 }
 
-struct SymbolTable {
-    class: HashMap<String, SymbolTableEntry>,
-    subroutine: HashMap<String, SymbolTableEntry>,
+#[derive(Debug)]
+enum SymbolUsage {
+    Define,
+    Use,
 }
 
-impl SymbolTable {
-    fn new() -> SymbolTable {
-        SymbolTable {
-            class: HashMap::new(),
-            subroutine: HashMap::new(),
+#[derive(Debug)]
+struct SymbolTableEntry {
+    category: SymbolCategory,
+    symbol_type: String,
+    usage: SymbolUsage,
+    index: usize,
+}
+
+impl SymbolTableEntry {
+    fn new(
+        category: SymbolCategory,
+        symbol_type: &str,
+        usage: SymbolUsage,
+        index: usize,
+    ) -> SymbolTableEntry {
+        SymbolTableEntry {
+            category: category,
+            symbol_type: symbol_type.to_string(),
+            usage: usage,
+            index: index,
         }
     }
 }
 
+#[derive(Debug)]
+struct ClassSymbolTable {
+    table: HashMap<String, SymbolTableEntry>,
+    static_count: usize,
+    field_count: usize,
+}
+
+impl ClassSymbolTable {
+    fn new() -> ClassSymbolTable {
+        ClassSymbolTable {
+            table: HashMap::new(),
+            static_count: 0,
+            field_count: 0,
+        }
+    }
+
+    /// Add an entry to the symbol table and count up symbol index
+    fn add_entry(
+        &mut self,
+        name: &str,
+        category: SymbolCategory,
+        symbol_type: &str,
+        usage: SymbolUsage,
+    ) {
+        match category {
+            SymbolCategory::Static => {
+                let entry = SymbolTableEntry::new(category, symbol_type, usage, self.static_count);
+                self.table.insert(name.to_string(), entry);
+                self.static_count += 1;
+            }
+            SymbolCategory::Field => {
+                let entry = SymbolTableEntry::new(category, symbol_type, usage, self.field_count);
+                self.table.insert(name.to_string(), entry);
+                self.field_count += 1;
+            }
+            _other => panic!(format!("Unexpected category: {:?}", _other)),
+        };
+    }
+}
+
+#[derive(Debug)]
+struct MethodSymbolTable {
+    table: HashMap<String, SymbolTableEntry>,
+    argument_count: usize,
+    var_count: usize,
+}
+
+impl MethodSymbolTable {
+    fn new() -> MethodSymbolTable {
+        MethodSymbolTable {
+            table: HashMap::new(),
+            argument_count: 0,
+            var_count: 0,
+        }
+    }
+
+    /// Add an entry to the symbol table and count up symbol index
+    fn add_entry(
+        &mut self,
+        name: String,
+        category: SymbolCategory,
+        symbol_type: &str,
+        usage: SymbolUsage,
+    ) {
+        match category {
+            SymbolCategory::Argument => {
+                let entry =
+                    SymbolTableEntry::new(category, symbol_type, usage, self.argument_count);
+                self.table.insert(name.to_string(), entry);
+                self.argument_count += 1;
+            }
+            SymbolCategory::Var => {
+                let entry = SymbolTableEntry::new(category, symbol_type, usage, self.var_count);
+                self.table.insert(name.to_string(), entry);
+                self.var_count += 1;
+            }
+            _other => panic!(format!("Unexpected category: {:?}", _other)),
+        };
+    }
+}
+
 struct Context {
-    symbol_table: SymbolTable,
+    class_table: ClassSymbolTable,
+    method_table: MethodSymbolTable,
 }
 
 impl Context {
     fn new() -> Context {
         Context {
-            symbol_table: SymbolTable::new(),
+            class_table: ClassSymbolTable::new(),
+            method_table: MethodSymbolTable::new(),
         }
     }
+}
+
+pub trait Declaration {
+    /// Serialize declaration at the specified indent level
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
 }
 
 pub struct Class {
@@ -2057,13 +2134,7 @@ fn compile_subroutine_dec(
                 _other => return Err(Error::UnexpectedKeyword(_other)),
             }
         }
-        TokenType::Identifier => {
-            let id = token.as_any().downcast_ref::<Identifier>().unwrap();
-            if !ctx.symbol_table.class.contains_key(&id.value) {
-                return Err(Error::UnknownType(id.value.clone()));
-            }
-            id
-        }
+        TokenType::Identifier => token.as_any().downcast_ref::<Identifier>().unwrap(),
         _other => {
             return Err(Error::UnexpectedToken {
                 token: token.boxed_clone(),
@@ -2077,10 +2148,6 @@ fn compile_subroutine_dec(
     target.return_type = rt.boxed_clone();
     current_idx += 1;
     target.name = get_token::<Identifier>(tokens, current_idx).to_owned();
-    ctx.symbol_table.class.insert(
-        target.name.value.to_owned(),
-        SymbolTableEntry::new(SymbolCategory::Subroutine, None, SymbolUsage::Define),
-    );
     current_idx = compile_parameter_list(ctx, &mut target.param_list, tokens, current_idx + 1)?;
     current_idx = compile_subroutine_body(ctx, &mut target.body, tokens, current_idx)?;
     Ok(current_idx)
@@ -2116,6 +2183,14 @@ fn compile_type<'a>(
             line: line!(),
             column: column!(),
         }),
+    }
+}
+
+fn keyword_to_category(k: KeywordType) -> SymbolCategory {
+    match k {
+        KeywordType::Static => SymbolCategory::Static,
+        KeywordType::Field => SymbolCategory::Field,
+        _other => panic!(format!("Unexpected keyword type specified: {:?}", _other)),
     }
 }
 
@@ -2155,6 +2230,12 @@ fn compile_class_var_dec(
             TokenType::Identifier => {
                 let i = tk.as_any().downcast_ref::<Identifier>().unwrap();
                 target.var_names.push(i.to_owned());
+                ctx.class_table.add_entry(
+                    i.value.as_str(),
+                    keyword_to_category(target.prefix.keyword()),
+                    target.var_type.str(),
+                    SymbolUsage::Define,
+                );
             }
             _other => {
                 return Err(Error::UnexpectedToken {
@@ -2181,10 +2262,6 @@ fn compile_class(
     // Check tokens from the head to see if they are valid class tokens
     let mut current_idx = token_index;
     let name = get_token::<Identifier>(tokens, current_idx);
-    ctx.symbol_table.class.insert(
-        name.value.to_owned(),
-        SymbolTableEntry::new(SymbolCategory::Class, None, SymbolUsage::Define),
-    );
     class.name = name.to_owned();
     current_idx += 1;
     let open_brace = get_token::<Symbol>(tokens, current_idx);
