@@ -83,13 +83,13 @@ struct SymbolTableEntry {
 impl SymbolTableEntry {
     fn new(
         category: SymbolCategory,
-        symbol_type: &str,
+        symbol_type: String,
         usage: SymbolUsage,
         index: usize,
     ) -> SymbolTableEntry {
         SymbolTableEntry {
             category: category,
-            symbol_type: symbol_type.to_string(),
+            symbol_type: symbol_type,
             usage: usage,
             index: index,
         }
@@ -115,20 +115,20 @@ impl ClassSymbolTable {
     /// Add an entry to the symbol table and count up symbol index
     fn add_entry(
         &mut self,
-        name: &str,
+        name: String,
         category: SymbolCategory,
-        symbol_type: &str,
+        symbol_type: String,
         usage: SymbolUsage,
     ) {
         match category {
             SymbolCategory::Static => {
                 let entry = SymbolTableEntry::new(category, symbol_type, usage, self.static_count);
-                self.table.insert(name.to_string(), entry);
+                self.table.insert(name, entry);
                 self.static_count += 1;
             }
             SymbolCategory::Field => {
                 let entry = SymbolTableEntry::new(category, symbol_type, usage, self.field_count);
-                self.table.insert(name.to_string(), entry);
+                self.table.insert(name, entry);
                 self.field_count += 1;
             }
             _other => panic!("Unexpected category: {:?}", _other),
@@ -157,23 +157,30 @@ impl MethodSymbolTable {
         &mut self,
         name: String,
         category: SymbolCategory,
-        symbol_type: &str,
+        symbol_type: String,
         usage: SymbolUsage,
     ) {
         match category {
             SymbolCategory::Argument => {
                 let entry =
                     SymbolTableEntry::new(category, symbol_type, usage, self.argument_count);
-                self.table.insert(name.to_string(), entry);
+                self.table.insert(name, entry);
                 self.argument_count += 1;
             }
             SymbolCategory::Var => {
                 let entry = SymbolTableEntry::new(category, symbol_type, usage, self.var_count);
-                self.table.insert(name.to_string(), entry);
+                self.table.insert(name, entry);
                 self.var_count += 1;
             }
             _other => panic!("Unexpected category: {:?}", _other),
         };
+    }
+
+    /// Clear all entries
+    fn clear(&mut self) {
+        self.table.clear();
+        self.argument_count = 0;
+        self.var_count = 0;
     }
 }
 
@@ -565,6 +572,15 @@ fn compile_subroutine_body(
                         let mut vd = VarDec::new();
                         vd.prefix = k.to_owned();
                         current_idx = compile_var_dec(ctx, &mut vd, tokens, current_idx + 1)?;
+                        // Add all declared vars to symbol table
+                        for v in &vd.names {
+                            ctx.method_table.add_entry(
+                                v.string(),
+                                SymbolCategory::Var,
+                                vd.var_type.string(),
+                                SymbolUsage::Define,
+                            );
+                        }
                         target.variables.push(vd);
                     }
                     KeywordType::Let
@@ -2123,6 +2139,7 @@ fn compile_subroutine_dec(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
+    ctx.method_table.clear(); // clear method symbol table for every new subroutine
     let token = &tokens.list[current_idx];
     let rt: &dyn Token = match token.token() {
         TokenType::Keyword => {
@@ -2149,6 +2166,15 @@ fn compile_subroutine_dec(
     current_idx += 1;
     target.name = get_token::<Identifier>(tokens, current_idx).to_owned();
     current_idx = compile_parameter_list(ctx, &mut target.param_list, tokens, current_idx + 1)?;
+    // add all parameters to symbol table
+    for i in 0..target.param_list.name.len() {
+        ctx.method_table.add_entry(
+            target.param_list.name[i].string(),
+            SymbolCategory::Argument,
+            target.param_list.param_type[i].string(),
+            SymbolUsage::Define,
+        );
+    }
     current_idx = compile_subroutine_body(ctx, &mut target.body, tokens, current_idx)?;
     Ok(current_idx)
 }
@@ -2231,9 +2257,9 @@ fn compile_class_var_dec(
                 let i = tk.as_any().downcast_ref::<Identifier>().unwrap();
                 target.var_names.push(i.to_owned());
                 ctx.class_table.add_entry(
-                    i.value.as_str(),
+                    i.string(),
                     keyword_to_category(target.prefix.keyword()),
-                    &target.var_type.string(),
+                    target.var_type.string(),
                     SymbolUsage::Define,
                 );
             }
