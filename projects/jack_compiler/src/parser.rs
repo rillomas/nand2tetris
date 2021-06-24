@@ -131,7 +131,7 @@ impl ClassSymbolTable {
                 self.table.insert(name.to_string(), entry);
                 self.field_count += 1;
             }
-            _other => panic!(format!("Unexpected category: {:?}", _other)),
+            _other => panic!("Unexpected category: {:?}", _other),
         };
     }
 }
@@ -172,7 +172,7 @@ impl MethodSymbolTable {
                 self.table.insert(name.to_string(), entry);
                 self.var_count += 1;
             }
-            _other => panic!(format!("Unexpected category: {:?}", _other)),
+            _other => panic!("Unexpected category: {:?}", _other),
         };
     }
 }
@@ -2190,7 +2190,7 @@ fn keyword_to_category(k: KeywordType) -> SymbolCategory {
     match k {
         KeywordType::Static => SymbolCategory::Static,
         KeywordType::Field => SymbolCategory::Field,
-        _other => panic!(format!("Unexpected keyword type specified: {:?}", _other)),
+        _other => panic!("Unexpected keyword type specified: {:?}", _other),
     }
 }
 
@@ -2233,7 +2233,7 @@ fn compile_class_var_dec(
                 ctx.class_table.add_entry(
                     i.value.as_str(),
                     keyword_to_category(target.prefix.keyword()),
-                    target.var_type.str(),
+                    &target.var_type.string(),
                     SymbolUsage::Define,
                 );
             }

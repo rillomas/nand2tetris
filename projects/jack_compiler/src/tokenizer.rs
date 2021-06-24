@@ -97,6 +97,8 @@ pub trait Token: std::fmt::Debug {
     /// We have this interface since Clone trait cannot be required for a trait,
     /// and there are cases where we still want to clone token instances
     fn boxed_clone(&self) -> Box<dyn Token>;
+    /// Get a string representation of token
+    fn string(&self) -> String;
 }
 
 #[derive(Debug, Clone)]
@@ -180,6 +182,10 @@ impl Token for Keyword {
     fn boxed_clone(&self) -> Box<dyn Token> {
         Box::new(self.clone())
     }
+
+    fn string(&self) -> String {
+        self.value.to_owned()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -226,6 +232,10 @@ impl Token for Symbol {
     fn boxed_clone(&self) -> Box<dyn Token> {
         Box::new(self.clone())
     }
+
+    fn string(&self) -> String {
+        self.value.to_string()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -260,6 +270,10 @@ impl Token for Identifier {
     fn boxed_clone(&self) -> Box<dyn Token> {
         Box::new(self.clone())
     }
+
+    fn string(&self) -> String {
+        self.value.to_owned()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -287,6 +301,10 @@ impl Token for IntegerConstant {
     fn boxed_clone(&self) -> Box<dyn Token> {
         Box::new(self.clone())
     }
+
+    fn string(&self) -> String {
+        self.value.to_string()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -313,6 +331,10 @@ impl Token for StringConstant {
 
     fn boxed_clone(&self) -> Box<dyn Token> {
         Box::new(self.clone())
+    }
+
+    fn string(&self) -> String {
+        self.value.to_owned()
     }
 }
 
