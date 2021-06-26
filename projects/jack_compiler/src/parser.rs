@@ -67,30 +67,17 @@ enum SymbolCategory {
 }
 
 #[derive(Debug)]
-enum SymbolUsage {
-    Define,
-    Use,
-}
-
-#[derive(Debug)]
 struct SymbolTableEntry {
     category: SymbolCategory,
     symbol_type: String,
-    usage: SymbolUsage,
     index: usize,
 }
 
 impl SymbolTableEntry {
-    fn new(
-        category: SymbolCategory,
-        symbol_type: String,
-        usage: SymbolUsage,
-        index: usize,
-    ) -> SymbolTableEntry {
+    fn new(category: SymbolCategory, symbol_type: String, index: usize) -> SymbolTableEntry {
         SymbolTableEntry {
             category: category,
             symbol_type: symbol_type,
-            usage: usage,
             index: index,
         }
     }
@@ -113,21 +100,15 @@ impl ClassSymbolTable {
     }
 
     /// Add an entry to the symbol table and count up symbol index
-    fn add_entry(
-        &mut self,
-        name: String,
-        category: SymbolCategory,
-        symbol_type: String,
-        usage: SymbolUsage,
-    ) {
+    fn add_entry(&mut self, name: String, category: SymbolCategory, symbol_type: String) {
         match category {
             SymbolCategory::Static => {
-                let entry = SymbolTableEntry::new(category, symbol_type, usage, self.static_count);
+                let entry = SymbolTableEntry::new(category, symbol_type, self.static_count);
                 self.table.insert(name, entry);
                 self.static_count += 1;
             }
             SymbolCategory::Field => {
-                let entry = SymbolTableEntry::new(category, symbol_type, usage, self.field_count);
+                let entry = SymbolTableEntry::new(category, symbol_type, self.field_count);
                 self.table.insert(name, entry);
                 self.field_count += 1;
             }
@@ -153,22 +134,15 @@ impl MethodSymbolTable {
     }
 
     /// Add an entry to the symbol table and count up symbol index
-    fn add_entry(
-        &mut self,
-        name: String,
-        category: SymbolCategory,
-        symbol_type: String,
-        usage: SymbolUsage,
-    ) {
+    fn add_entry(&mut self, name: String, category: SymbolCategory, symbol_type: String) {
         match category {
             SymbolCategory::Argument => {
-                let entry =
-                    SymbolTableEntry::new(category, symbol_type, usage, self.argument_count);
+                let entry = SymbolTableEntry::new(category, symbol_type, self.argument_count);
                 self.table.insert(name, entry);
                 self.argument_count += 1;
             }
             SymbolCategory::Var => {
-                let entry = SymbolTableEntry::new(category, symbol_type, usage, self.var_count);
+                let entry = SymbolTableEntry::new(category, symbol_type, self.var_count);
                 self.table.insert(name, entry);
                 self.var_count += 1;
             }
@@ -184,13 +158,13 @@ impl MethodSymbolTable {
     }
 }
 
-struct Context {
+pub struct Context {
     class_table: ClassSymbolTable,
     method_table: MethodSymbolTable,
 }
 
 impl Context {
-    fn new() -> Context {
+    pub fn new() -> Context {
         Context {
             class_table: ClassSymbolTable::new(),
             method_table: MethodSymbolTable::new(),
@@ -399,7 +373,7 @@ fn get_token<T: 'static>(tokens: &TokenList, index: usize) -> &T {
     tokens.list[index].as_any().downcast_ref::<T>().unwrap()
 }
 
-fn compile_parameter_list(
+fn parse_parameter_list(
     ctx: &mut Context,
     target: &mut ParameterList,
     tokens: &TokenList,
@@ -453,7 +427,7 @@ fn compile_parameter_list(
                 // should be a builtin type
                 target
                     .param_type
-                    .push(compile_type(ctx, tk, current_idx)?.boxed_clone());
+                    .push(parse_type(ctx, tk, current_idx)?.boxed_clone());
                 got_param_type = true;
                 current_idx += 1;
             }
@@ -468,7 +442,7 @@ fn compile_parameter_list(
                     // should be a class name
                     target
                         .param_type
-                        .push(compile_type(ctx, tk, current_idx)?.boxed_clone());
+                        .push(parse_type(ctx, tk, current_idx)?.boxed_clone());
                     got_param_type = true;
                 }
                 current_idx += 1;
@@ -522,7 +496,7 @@ impl SubroutineBody {
     }
 }
 
-fn compile_subroutine_body(
+fn parse_subroutine_body(
     ctx: &mut Context,
     target: &mut SubroutineBody,
     tokens: &TokenList,
@@ -571,14 +545,13 @@ fn compile_subroutine_body(
                         // If we get 'var' it means we have a varDec
                         let mut vd = VarDec::new();
                         vd.prefix = k.to_owned();
-                        current_idx = compile_var_dec(ctx, &mut vd, tokens, current_idx + 1)?;
+                        current_idx = parse_var_dec(ctx, &mut vd, tokens, current_idx + 1)?;
                         // Add all declared vars to symbol table
                         for v in &vd.names {
                             ctx.method_table.add_entry(
                                 v.string(),
                                 SymbolCategory::Var,
                                 vd.var_type.string(),
-                                SymbolUsage::Define,
                             );
                         }
                         target.variables.push(vd);
@@ -591,7 +564,7 @@ fn compile_subroutine_body(
                         // If we get these keywords we have a statement
                         // We stay on same index (no increment) to read again from the statement keyword.
                         current_idx =
-                            compile_statements(ctx, &mut target.statements, tokens, current_idx)?
+                            parse_statements(ctx, &mut target.statements, tokens, current_idx)?
                     }
                     _other => {
                         return Err(Error::UnexpectedKeyword(_other));
@@ -659,14 +632,14 @@ impl VarDec {
     }
 }
 
-fn compile_var_dec(
+fn parse_var_dec(
     ctx: &mut Context,
     target: &mut VarDec,
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.var_type = compile_type(ctx, &tokens.list[current_idx], current_idx)?.boxed_clone();
+    target.var_type = parse_type(ctx, &tokens.list[current_idx], current_idx)?.boxed_clone();
     current_idx += 1;
     target
         .names
@@ -918,7 +891,7 @@ impl Op {
     }
 }
 
-fn compile_term(
+fn parse_term(
     ctx: &mut Context,
     tokens: &TokenList,
     token_index: usize,
@@ -969,11 +942,11 @@ fn compile_term(
                     let s = next.as_any().downcast_ref::<Symbol>().unwrap();
                     match s.value {
                         '[' => {
-                            // compile array
+                            // parse array
                             let mut arr = ArrayVarTerm::new();
                             arr.name = id.to_owned();
                             arr.arr.block.start = s.to_owned();
-                            current_idx = compile_expression(
+                            current_idx = parse_expression(
                                 ctx,
                                 &mut arr.arr.expression,
                                 tokens,
@@ -993,7 +966,7 @@ fn compile_term(
                             Ok((Box::new(arr), current_idx + 1))
                         }
                         '(' => {
-                            // compile subroutineCall (functionCall)
+                            // parse subroutineCall (functionCall)
                             return Err(Error::NotImplemented {
                                 index: current_idx,
                                 file: file!(),
@@ -1002,7 +975,7 @@ fn compile_term(
                             });
                         }
                         '.' => {
-                            // compile subroutineCall (methodCall)
+                            // parse subroutineCall (methodCall)
                             let mut mc = MethodCall::new();
                             mc.source_name = id.to_owned();
                             mc.dot = s.to_owned();
@@ -1021,7 +994,7 @@ fn compile_term(
                                 });
                             }
                             mc.parameter.start = open_paren.to_owned();
-                            current_idx = compile_expression_list(
+                            current_idx = parse_expression_list(
                                 ctx,
                                 &mut mc.expression,
                                 tokens,
@@ -1067,7 +1040,7 @@ fn compile_term(
                     let mut exp = ExpressionInParenthesisTerm::new();
                     exp.block.start = s.to_owned();
                     current_idx =
-                        compile_expression(ctx, &mut exp.expression, tokens, current_idx + 1)?;
+                        parse_expression(ctx, &mut exp.expression, tokens, current_idx + 1)?;
                     let end = get_token::<Symbol>(tokens, current_idx);
                     if end.value != ')' {
                         return Err(Error::UnexpectedSymbol {
@@ -1083,7 +1056,7 @@ fn compile_term(
                 }
                 '-' | '~' => {
                     // Unary op + term
-                    let (term, idx) = compile_term(ctx, tokens, current_idx + 1)?;
+                    let (term, idx) = parse_term(ctx, tokens, current_idx + 1)?;
                     let uot = UnaryOpTerm {
                         op: s.to_owned(),
                         term: term,
@@ -1102,7 +1075,7 @@ fn compile_term(
     }
 }
 
-fn compile_expression(
+fn parse_expression(
     ctx: &mut Context,
     target: &mut Expression,
     tokens: &TokenList,
@@ -1119,7 +1092,7 @@ fn compile_expression(
                         // May be a unary op or a normal op
                         if target.terms.is_empty() {
                             // If no term appear before this we assume it is a unary op
-                            let (term, idx) = compile_term(ctx, tokens, current_idx + 1)?;
+                            let (term, idx) = parse_term(ctx, tokens, current_idx + 1)?;
                             let uot = UnaryOpTerm {
                                 op: s.to_owned(),
                                 term: term,
@@ -1137,7 +1110,7 @@ fn compile_expression(
                     }
                     '~' => {
                         // Unary op + term
-                        let (term, idx) = compile_term(ctx, tokens, current_idx + 1)?;
+                        let (term, idx) = parse_term(ctx, tokens, current_idx + 1)?;
                         let uot = UnaryOpTerm {
                             op: s.to_owned(),
                             term: term,
@@ -1157,14 +1130,14 @@ fn compile_expression(
                         break;
                     }
                     _other => {
-                        let (term, idx) = compile_term(ctx, tokens, current_idx)?;
+                        let (term, idx) = parse_term(ctx, tokens, current_idx)?;
                         target.terms.push(term);
                         current_idx = idx;
                     }
                 }
             }
             _other => {
-                let (term, idx) = compile_term(ctx, tokens, current_idx)?;
+                let (term, idx) = parse_term(ctx, tokens, current_idx)?;
                 target.terms.push(term);
                 current_idx = idx;
             }
@@ -1371,7 +1344,7 @@ impl ExpressionList {
     }
 }
 
-fn compile_expression_list(
+fn parse_expression_list(
     ctx: &mut Context,
     target: &mut ExpressionList,
     tokens: &TokenList,
@@ -1396,7 +1369,7 @@ fn compile_expression_list(
                     _other => {
                         // We have an expression so we parse it
                         let mut exp = Expression::new();
-                        current_idx = compile_expression(ctx, &mut exp, tokens, current_idx)?;
+                        current_idx = parse_expression(ctx, &mut exp, tokens, current_idx)?;
                         target.list.push(exp);
                     }
                 }
@@ -1404,7 +1377,7 @@ fn compile_expression_list(
             _other => {
                 // We have an expression so we parse it
                 let mut exp = Expression::new();
-                current_idx = compile_expression(ctx, &mut exp, tokens, current_idx)?;
+                current_idx = parse_expression(ctx, &mut exp, tokens, current_idx)?;
                 target.list.push(exp);
             }
         }
@@ -1666,7 +1639,7 @@ impl Statement for WhileStatement {
     }
 }
 
-fn compile_let_statement(
+fn parse_let_statement(
     ctx: &mut Context,
     target: &mut LetStatement,
     tokens: &TokenList,
@@ -1688,8 +1661,7 @@ fn compile_let_statement(
                 // got array expression
                 let mut arr = ArrayExpression::new();
                 arr.block.start = s.to_owned();
-                current_idx =
-                    compile_expression(ctx, &mut arr.expression, tokens, current_idx + 1)?;
+                current_idx = parse_expression(ctx, &mut arr.expression, tokens, current_idx + 1)?;
                 let end_token = get_token::<Symbol>(tokens, current_idx);
                 if end_token.value != ']' {
                     return Err(Error::UnexpectedSymbol {
@@ -1708,7 +1680,7 @@ fn compile_let_statement(
                 // parse right hand side
                 target.assign = s.to_owned();
                 current_idx =
-                    compile_expression(ctx, &mut target.right_hand_side, tokens, current_idx + 1)?;
+                    parse_expression(ctx, &mut target.right_hand_side, tokens, current_idx + 1)?;
             }
             _other => {
                 return Err(Error::UnexpectedSymbol {
@@ -1724,7 +1696,7 @@ fn compile_let_statement(
     Ok(current_idx)
 }
 
-fn compile_else_block(
+fn parse_else_block(
     ctx: &mut Context,
     target: &mut ElseBlock,
     tokens: &TokenList,
@@ -1742,7 +1714,7 @@ fn compile_else_block(
         });
     }
     target.statement_block.start = block_start.to_owned();
-    current_idx = compile_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
+    current_idx = parse_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
     let block_end = get_token::<Symbol>(tokens, current_idx);
     if block_end.value != '}' {
         return Err(Error::UnexpectedSymbol {
@@ -1757,7 +1729,7 @@ fn compile_else_block(
     Ok(current_idx + 1)
 }
 
-fn compile_if_statement(
+fn parse_if_statement(
     ctx: &mut Context,
     target: &mut IfStatement,
     tokens: &TokenList,
@@ -1775,7 +1747,7 @@ fn compile_if_statement(
         });
     }
     target.cond_block.start = cond_start.to_owned();
-    current_idx = compile_expression(ctx, &mut target.condition, tokens, current_idx + 1)?;
+    current_idx = parse_expression(ctx, &mut target.condition, tokens, current_idx + 1)?;
     let cond_end = get_token::<Symbol>(tokens, current_idx);
     if cond_end.value != ')' {
         return Err(Error::UnexpectedSymbol {
@@ -1799,7 +1771,7 @@ fn compile_if_statement(
         });
     }
     target.statement_block.start = body_start.to_owned();
-    current_idx = compile_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
+    current_idx = parse_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
     let body_end = get_token::<Symbol>(tokens, current_idx);
     if body_end.value != '}' {
         return Err(Error::UnexpectedSymbol {
@@ -1812,7 +1784,7 @@ fn compile_if_statement(
     }
     target.statement_block.end = body_end.to_owned();
     current_idx += 1;
-    // Check if next token is 'else' and if so we compile the else block.
+    // Check if next token is 'else' and if so we parse the else block.
     // If it is anything else we assume it is some other statement and return
     let maybe_else = &tokens.list[current_idx];
     if !matches!(maybe_else.token(), TokenType::Keyword) {
@@ -1827,12 +1799,12 @@ fn compile_if_statement(
     // We got else so we parse else block
     let mut eb = ElseBlock::new();
     eb.keyword = k.to_owned();
-    current_idx = compile_else_block(ctx, &mut eb, tokens, current_idx + 1)?;
+    current_idx = parse_else_block(ctx, &mut eb, tokens, current_idx + 1)?;
     target.else_block = Some(eb);
     Ok(current_idx)
 }
 
-fn compile_subroutine_call(
+fn parse_subroutine_call(
     ctx: &mut Context,
     target: &mut SubroutineCall,
     tokens: &TokenList,
@@ -1849,7 +1821,7 @@ fn compile_subroutine_call(
             let mut f = FunctionCall::new();
             f.name = source.to_owned();
             f.parameter_block.start = next.to_owned();
-            current_idx = compile_expression_list(ctx, &mut f.list, tokens, current_idx + 1)?;
+            current_idx = parse_expression_list(ctx, &mut f.list, tokens, current_idx + 1)?;
             let end_token = get_token::<Symbol>(tokens, current_idx);
             if end_token.value != ')' {
                 return Err(Error::UnexpectedSymbol {
@@ -1883,7 +1855,7 @@ fn compile_subroutine_call(
                 });
             }
             m.parameter.start = start.to_owned();
-            current_idx = compile_expression_list(ctx, &mut m.expression, tokens, current_idx + 1)?;
+            current_idx = parse_expression_list(ctx, &mut m.expression, tokens, current_idx + 1)?;
             let end = get_token::<Symbol>(tokens, current_idx);
             if end.value != ')' {
                 return Err(Error::UnexpectedSymbol {
@@ -1911,14 +1883,13 @@ fn compile_subroutine_call(
     Ok(current_idx)
 }
 
-fn compile_do_statement(
+fn parse_do_statement(
     ctx: &mut Context,
     target: &mut DoStatement,
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<usize, Error> {
-    let current_idx =
-        compile_subroutine_call(ctx, &mut target.subroutine_call, tokens, token_index)?;
+    let current_idx = parse_subroutine_call(ctx, &mut target.subroutine_call, tokens, token_index)?;
     let end_token = get_token::<Symbol>(tokens, current_idx);
     if end_token.value != ';' {
         return Err(Error::UnexpectedSymbol {
@@ -1933,7 +1904,7 @@ fn compile_do_statement(
     Ok(current_idx + 1)
 }
 
-fn compile_return_statement(
+fn parse_return_statement(
     ctx: &mut Context,
     target: &mut ReturnStatement,
     tokens: &TokenList,
@@ -1953,7 +1924,7 @@ fn compile_return_statement(
                 _other => {
                     // Should be part of an expression
                     let mut e = Expression::new();
-                    current_idx = compile_expression(ctx, &mut e, tokens, current_idx).unwrap();
+                    current_idx = parse_expression(ctx, &mut e, tokens, current_idx).unwrap();
                     target.expression = Some(e);
                     let end = get_token::<Symbol>(tokens, current_idx);
                     if end.value != ';' {
@@ -1973,7 +1944,7 @@ fn compile_return_statement(
         _other => {
             // Should be part of an expression
             let mut e = Expression::new();
-            current_idx = compile_expression(ctx, &mut e, tokens, current_idx).unwrap();
+            current_idx = parse_expression(ctx, &mut e, tokens, current_idx).unwrap();
             target.expression = Some(e);
             let end = get_token::<Symbol>(tokens, current_idx);
             if end.value != ';' {
@@ -1992,7 +1963,7 @@ fn compile_return_statement(
     Ok(current_idx)
 }
 
-fn compile_while_statement(
+fn parse_while_statement(
     ctx: &mut Context,
     target: &mut WhileStatement,
     tokens: &TokenList,
@@ -2010,7 +1981,7 @@ fn compile_while_statement(
         });
     }
     target.condition.start = cond_start.to_owned();
-    current_idx = compile_expression(ctx, &mut target.expression, tokens, current_idx + 1)?;
+    current_idx = parse_expression(ctx, &mut target.expression, tokens, current_idx + 1)?;
     let cond_end = get_token::<Symbol>(tokens, current_idx);
     if cond_end.value != ')' {
         return Err(Error::UnexpectedSymbol {
@@ -2034,7 +2005,7 @@ fn compile_while_statement(
         });
     }
     target.body.start = body_start.to_owned();
-    current_idx = compile_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
+    current_idx = parse_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
     let body_end = get_token::<Symbol>(tokens, current_idx);
     if body_end.value != '}' {
         return Err(Error::UnexpectedSymbol {
@@ -2049,7 +2020,7 @@ fn compile_while_statement(
     Ok(current_idx + 1)
 }
 
-fn compile_statements(
+fn parse_statements(
     ctx: &mut Context,
     target: &mut StatementList,
     tokens: &TokenList,
@@ -2065,33 +2036,31 @@ fn compile_statements(
                     KeywordType::Let => {
                         let mut l = LetStatement::new();
                         l.keyword = k.to_owned();
-                        current_idx = compile_let_statement(ctx, &mut l, tokens, current_idx + 1)?;
+                        current_idx = parse_let_statement(ctx, &mut l, tokens, current_idx + 1)?;
                         target.list.push(Box::new(l));
                     }
                     KeywordType::If => {
                         let mut i = IfStatement::new();
                         i.keyword = k.to_owned();
-                        current_idx = compile_if_statement(ctx, &mut i, tokens, current_idx + 1)?;
+                        current_idx = parse_if_statement(ctx, &mut i, tokens, current_idx + 1)?;
                         target.list.push(Box::new(i));
                     }
                     KeywordType::While => {
                         let mut w = WhileStatement::new();
                         w.keyword = k.to_owned();
-                        current_idx =
-                            compile_while_statement(ctx, &mut w, tokens, current_idx + 1)?;
+                        current_idx = parse_while_statement(ctx, &mut w, tokens, current_idx + 1)?;
                         target.list.push(Box::new(w));
                     }
                     KeywordType::Do => {
                         let mut d = DoStatement::new();
                         d.keyword = k.to_owned();
-                        current_idx = compile_do_statement(ctx, &mut d, tokens, current_idx + 1)?;
+                        current_idx = parse_do_statement(ctx, &mut d, tokens, current_idx + 1)?;
                         target.list.push(Box::new(d));
                     }
                     KeywordType::Return => {
                         let mut r = ReturnStatement::new();
                         r.keyword = k.to_owned();
-                        current_idx =
-                            compile_return_statement(ctx, &mut r, tokens, current_idx + 1)?;
+                        current_idx = parse_return_statement(ctx, &mut r, tokens, current_idx + 1)?;
                         target.list.push(Box::new(r));
                     }
                     _other => {
@@ -2132,7 +2101,7 @@ fn compile_statements(
     Ok(current_idx)
 }
 
-fn compile_subroutine_dec(
+fn parse_subroutine_dec(
     ctx: &mut Context,
     target: &mut SubroutineDec,
     tokens: &TokenList,
@@ -2165,21 +2134,20 @@ fn compile_subroutine_dec(
     target.return_type = rt.boxed_clone();
     current_idx += 1;
     target.name = get_token::<Identifier>(tokens, current_idx).to_owned();
-    current_idx = compile_parameter_list(ctx, &mut target.param_list, tokens, current_idx + 1)?;
+    current_idx = parse_parameter_list(ctx, &mut target.param_list, tokens, current_idx + 1)?;
     // add all parameters to symbol table
     for i in 0..target.param_list.name.len() {
         ctx.method_table.add_entry(
             target.param_list.name[i].string(),
             SymbolCategory::Argument,
             target.param_list.param_type[i].string(),
-            SymbolUsage::Define,
         );
     }
-    current_idx = compile_subroutine_body(ctx, &mut target.body, tokens, current_idx)?;
+    current_idx = parse_subroutine_body(ctx, &mut target.body, tokens, current_idx)?;
     Ok(current_idx)
 }
 
-fn compile_type<'a>(
+fn parse_type<'a>(
     ctx: &mut Context,
     token: &'a Box<dyn Token>,
     token_index: usize,
@@ -2220,14 +2188,14 @@ fn keyword_to_category(k: KeywordType) -> SymbolCategory {
     }
 }
 
-fn compile_class_var_dec(
+fn parse_class_var_dec(
     ctx: &mut Context,
     target: &mut ClassVarDec,
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.var_type = compile_type(ctx, &tokens.list[current_idx], current_idx)?.boxed_clone();
+    target.var_type = parse_type(ctx, &tokens.list[current_idx], current_idx)?.boxed_clone();
     current_idx += 1;
     loop {
         let tk = &tokens.list[current_idx];
@@ -2260,7 +2228,6 @@ fn compile_class_var_dec(
                     i.string(),
                     keyword_to_category(target.prefix.keyword()),
                     target.var_type.string(),
-                    SymbolUsage::Define,
                 );
             }
             _other => {
@@ -2279,7 +2246,7 @@ fn compile_class_var_dec(
 }
 
 /// Check and ingest all tokens related to current class
-fn compile_class(
+fn parse_class(
     ctx: &mut Context,
     class: &mut Class,
     tokens: &TokenList,
@@ -2327,14 +2294,12 @@ fn compile_class(
                 match keyword.keyword() {
                     KeywordType::Static | KeywordType::Field => {
                         let mut cvd = ClassVarDec::new(keyword.clone());
-                        current_idx =
-                            compile_class_var_dec(ctx, &mut cvd, tokens, current_idx + 1)?;
+                        current_idx = parse_class_var_dec(ctx, &mut cvd, tokens, current_idx + 1)?;
                         class.add(Box::new(cvd))?;
                     }
                     KeywordType::Constructor | KeywordType::Function | KeywordType::Method => {
                         let mut sd = SubroutineDec::new(keyword.clone());
-                        current_idx =
-                            compile_subroutine_dec(ctx, &mut sd, tokens, current_idx + 1)?;
+                        current_idx = parse_subroutine_dec(ctx, &mut sd, tokens, current_idx + 1)?;
                         class.add(Box::new(sd))?;
                     }
                     _other => {
@@ -2358,10 +2323,10 @@ fn compile_class(
 
 /// Parse specified file and generate an internal tree representation
 pub fn parse_file(
+    context: &mut Context,
     file_reader: &mut std::io::BufReader<std::fs::File>,
 ) -> Result<Box<Class>, Error> {
     let tokens = generate_token_list(file_reader);
-    let mut ctx = Context::new();
     let mut current_index = 0;
     let keyword = get_token::<Keyword>(&tokens, current_index);
     if !matches!(keyword.keyword(), KeywordType::Class) {
@@ -2369,7 +2334,7 @@ pub fn parse_file(
     }
     let mut class = Class::new();
     class.prefix = keyword.clone();
-    current_index = compile_class(&mut ctx, &mut class, &tokens, current_index + 1)?;
+    current_index = parse_class(context, &mut class, &tokens, current_index + 1)?;
     if current_index != tokens.list.len() - 1 {
         // All tokens should be consumed
         return Err(Error::TokenLeftover {
@@ -2378,4 +2343,12 @@ pub fn parse_file(
         });
     }
     Ok(Box::new(class))
+}
+
+/// Compile specified file and generate a compiled VM file
+pub fn compile_file(
+    context: &mut Context,
+    writer: &mut std::io::BufWriter<std::fs::File>,
+) -> Result<(), Error> {
+    Ok(())
 }

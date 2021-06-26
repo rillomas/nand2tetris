@@ -46,7 +46,8 @@ fn test_parser(root: &PathBuf, dir: &str) {
         //     },
         //     _t => _t
         // }
-        let class = parser::parse_file(&mut io.input)
+        let mut ctx = parser::Context::new();
+        let class = parser::parse_file(&mut ctx, &mut io.input)
             .expect(format!("Parse failed at {}", io.input_file.display()).as_str());
 
         // Read Golden XML results and compare with results
