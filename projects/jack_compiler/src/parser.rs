@@ -200,6 +200,7 @@ impl Class {
         Ok(self.children.push(node))
     }
 
+    /// Serialize to XML
     pub fn serialize(
         &self,
         output: &mut String,
@@ -222,12 +223,8 @@ impl Class {
         Ok(())
     }
 
-    /// Compile specified file and generate a compiled VM file
-    pub fn compile_to(
-        &self,
-        context: &Context,
-        writer: &mut std::io::BufWriter<std::fs::File>,
-    ) -> Result<(), Error> {
+    /// Compile to VM text
+    pub fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
         Ok(())
     }
 }

@@ -62,18 +62,25 @@ fn test_compiler(root: &PathBuf, dir: &str) {
     let io_list = generate_ioset(&target).unwrap();
     for mut io in io_list {
         let origin = get_origin_name(&io.input_file).unwrap();
-        let mut output_file_path = io.input_file.clone();
-        let output_name = format!("{}.vm", origin);
-        output_file_path.set_file_name(&output_name);
+        // let mut output_file_path = io.input_file.clone();
+        // let output_name = format!("{}.vm", origin);
+        // output_file_path.set_file_name(&output_name);
         let mut ctx = parser::Context::new();
         let class = parser::parse_file(&mut ctx, &mut io.input)
             .expect(format!("Parse failed at {}", io.input_file.display()).as_str());
 
-        // Write to VM file
-        let file = File::create(output_file_path).unwrap();
-        let mut writer = BufWriter::new(file);
-        let res = class.compile_to(&ctx, &mut writer);
+        // Compile to vm text
+        let mut vm = String::from("");
+        let res = class.compile(&ctx, &mut vm);
         assert!(res.is_ok());
+
+        // Compare with golden
+        let mut golden_file_path = io.input_file.clone();
+        let golden_name = format!("{}Gold.vm", origin);
+        golden_file_path.set_file_name(&golden_name);
+        let golden_vm = std::fs::read_to_string(golden_file_path).unwrap();
+        assert_eq!(golden_vm, vm);
+        println!("OK: {} vs {}", &golden_name, io.input_file.display());
     }
 }
 
