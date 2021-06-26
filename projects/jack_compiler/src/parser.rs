@@ -221,6 +221,15 @@ impl Class {
         output.push_str(&end_tag);
         Ok(())
     }
+
+    /// Compile specified file and generate a compiled VM file
+    pub fn compile_to(
+        &self,
+        context: &Context,
+        writer: &mut std::io::BufWriter<std::fs::File>,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 struct ClassVarDec {
@@ -2343,12 +2352,4 @@ pub fn parse_file(
         });
     }
     Ok(Box::new(class))
-}
-
-/// Compile specified file and generate a compiled VM file
-pub fn compile_file(
-    context: &mut Context,
-    writer: &mut std::io::BufWriter<std::fs::File>,
-) -> Result<(), Error> {
-    Ok(())
 }
