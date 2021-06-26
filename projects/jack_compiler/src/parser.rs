@@ -172,17 +172,13 @@ impl Context {
     }
 }
 
-pub trait Declaration {
-    /// Serialize declaration at the specified indent level
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
-}
-
 pub struct Class {
     prefix: Keyword,
     name: Identifier,
     begin_symbol: Symbol,
     end_symbol: Symbol,
-    children: Vec<Box<dyn Declaration>>,
+    class_vars: Vec<ClassVarDec>,
+    subroutines: Vec<SubroutineDec>,
 }
 
 impl Class {
@@ -192,12 +188,9 @@ impl Class {
             name: Identifier::new(),
             begin_symbol: Symbol::new(),
             end_symbol: Symbol::new(),
-            children: Vec::new(),
+            class_vars: Vec::new(),
+            subroutines: Vec::new(),
         }
-    }
-
-    fn add(&mut self, node: Box<dyn Declaration>) -> Result<(), Error> {
-        Ok(self.children.push(node))
     }
 
     /// Serialize to XML
@@ -215,8 +208,11 @@ impl Class {
         self.prefix.serialize(output, next_level)?;
         self.name.serialize(output, next_level)?;
         self.begin_symbol.serialize(output, next_level)?;
-        for c in &self.children {
+        for c in &self.class_vars {
             c.serialize(output, next_level)?;
+        }
+        for s in &self.subroutines {
+            s.serialize(output, next_level)?;
         }
         self.end_symbol.serialize(output, next_level)?;
         output.push_str(&end_tag);
@@ -225,6 +221,7 @@ impl Class {
 
     /// Compile to VM text
     pub fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        // Iterate all subroutines
         Ok(())
     }
 }
@@ -247,9 +244,7 @@ impl ClassVarDec {
             end_symbol: Symbol::new(),
         }
     }
-}
 
-impl Declaration for ClassVarDec {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         // number of delimiters should be one less than number of vars
         let var_num = self.var_names.len();
@@ -305,9 +300,7 @@ impl SubroutineDec {
             body: SubroutineBody::new(),
         }
     }
-}
 
-impl Declaration for SubroutineDec {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = SUBROUTINE_DEC;
         let indent = INDENT_STR.repeat(indent_level);
@@ -2301,12 +2294,12 @@ fn parse_class(
                     KeywordType::Static | KeywordType::Field => {
                         let mut cvd = ClassVarDec::new(keyword.clone());
                         current_idx = parse_class_var_dec(ctx, &mut cvd, tokens, current_idx + 1)?;
-                        class.add(Box::new(cvd))?;
+                        class.class_vars.push(cvd);
                     }
                     KeywordType::Constructor | KeywordType::Function | KeywordType::Method => {
                         let mut sd = SubroutineDec::new(keyword.clone());
                         current_idx = parse_subroutine_dec(ctx, &mut sd, tokens, current_idx + 1)?;
-                        class.add(Box::new(sd))?;
+                        class.subroutines.push(sd);
                     }
                     _other => {
                         return Err(Error::UnexpectedKeyword(keyword.keyword()));
