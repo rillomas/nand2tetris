@@ -51,11 +51,12 @@ pub enum Error {
     },
     #[error("{file} {line}:{column} This path is not implemented yet")]
     NotImplemented {
-        index: usize,
         file: &'static str,
         line: u32,
         column: u32,
     },
+    #[error("Unexpected State: {0}")]
+    UnexpectedState(String),
 }
 
 #[derive(Debug)]
@@ -220,9 +221,13 @@ impl Class {
     }
 
     /// Compile to VM text
-    pub fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    pub fn compile(&self, context: &Context) -> Result<String, Error> {
+        let mut output = String::from("");
         // Iterate all subroutines
-        Ok(())
+        for s in &self.subroutines {
+            s.compile(context, &mut output, &self.name.value)?;
+        }
+        Ok(output)
     }
 }
 
@@ -314,6 +319,29 @@ impl SubroutineDec {
         self.param_list.serialize(output, next_level)?;
         self.body.serialize(output, next_level)?;
         output.push_str(&end_tag);
+        Ok(())
+    }
+
+    pub fn compile(
+        &self,
+        context: &Context,
+        output: &mut String,
+        class_name: &str,
+    ) -> Result<(), Error> {
+        // Get name and number of variables
+        let func_line = format!(
+            "function {0}.{1} {2}{3}",
+            class_name,
+            self.name.value,
+            self.body.variables.len(),
+            NEW_LINE
+        );
+        output.push_str(&func_line);
+        // set parameters
+        // set variables
+        for s in &self.body.statements.list {
+            s.compile(context, output)?;
+        }
         Ok(())
     }
 }
@@ -967,7 +995,6 @@ fn parse_term(
                         '(' => {
                             // parse subroutineCall (functionCall)
                             return Err(Error::NotImplemented {
-                                index: current_idx,
                                 file: file!(),
                                 line: line!(),
                                 column: column!(),
@@ -992,10 +1019,10 @@ fn parse_term(
                                     column: column!(),
                                 });
                             }
-                            mc.parameter.start = open_paren.to_owned();
+                            mc.parameter_block.start = open_paren.to_owned();
                             current_idx = parse_expression_list(
                                 ctx,
-                                &mut mc.expression,
+                                &mut mc.parameters,
                                 tokens,
                                 current_idx + 1,
                             )?;
@@ -1009,7 +1036,7 @@ fn parse_term(
                                     column: column!(),
                                 });
                             }
-                            mc.parameter.end = close_paren.to_owned();
+                            mc.parameter_block.end = close_paren.to_owned();
                             let mut sc = SubroutineCallTerm::new();
                             sc.call.method = Some(mc);
                             Ok((Box::new(sc), current_idx + 1))
@@ -1165,6 +1192,7 @@ impl Block {
 trait Statement: std::fmt::Debug {
     /// Serialize statement at the specified indent level
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error>;
 }
 
 #[derive(Debug)]
@@ -1230,6 +1258,14 @@ impl Statement for LetStatement {
         self.end.serialize(output, next_level)?;
         output.push_str(&end_tag);
         Ok(())
+    }
+
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        Err(Error::NotImplemented {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        })
     }
 }
 
@@ -1299,6 +1335,14 @@ impl Statement for IfStatement {
         }
         output.push_str(&end_tag);
         Ok(())
+    }
+
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        Err(Error::NotImplemented {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        })
     }
 }
 
@@ -1388,7 +1432,7 @@ fn parse_expression_list(
 struct FunctionCall {
     name: Identifier,
     parameter_block: Block,
-    list: ExpressionList,
+    parameters: ExpressionList,
 }
 
 impl FunctionCall {
@@ -1396,13 +1440,13 @@ impl FunctionCall {
         FunctionCall {
             name: Identifier::new(),
             parameter_block: Block::new(),
-            list: ExpressionList::new(),
+            parameters: ExpressionList::new(),
         }
     }
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         self.name.serialize(output, indent_level)?;
         self.parameter_block.start.serialize(output, indent_level)?;
-        self.list.serialize(output, indent_level)?;
+        self.parameters.serialize(output, indent_level)?;
         self.parameter_block.end.serialize(output, indent_level)?;
         Ok(())
     }
@@ -1413,8 +1457,8 @@ struct MethodCall {
     source_name: Identifier, // a className or varName
     dot: Symbol,
     method_name: Identifier,
-    parameter: Block,
-    expression: ExpressionList,
+    parameter_block: Block,
+    parameters: ExpressionList,
 }
 
 impl MethodCall {
@@ -1423,17 +1467,17 @@ impl MethodCall {
             source_name: Identifier::new(),
             dot: Symbol::new(),
             method_name: Identifier::new(),
-            parameter: Block::new(),
-            expression: ExpressionList::new(),
+            parameter_block: Block::new(),
+            parameters: ExpressionList::new(),
         }
     }
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         self.source_name.serialize(output, indent_level)?;
         self.dot.serialize(output, indent_level)?;
         self.method_name.serialize(output, indent_level)?;
-        self.parameter.start.serialize(output, indent_level)?;
-        self.expression.serialize(output, indent_level)?;
-        self.parameter.end.serialize(output, indent_level)?;
+        self.parameter_block.start.serialize(output, indent_level)?;
+        self.parameters.serialize(output, indent_level)?;
+        self.parameter_block.end.serialize(output, indent_level)?;
         Ok(())
     }
 }
@@ -1487,6 +1531,47 @@ impl SubroutineCall {
         }
         Ok(())
     }
+
+    /// Get name of caller for function or method
+    fn caller_name(&self) -> Result<String, Error> {
+        if self.function.is_some() && self.method.is_some() {
+            // Only one should have a valid value
+            return Err(Error::UnexpectedState(String::from(
+                "Got both function call and method call in SubroutineCall",
+            )));
+        } else if self.function.is_none() && self.method.is_none() {
+            return Err(Error::UnexpectedState(String::from(
+                "Content of SubroutineCall not found",
+            )));
+        }
+
+        if self.function.is_some() {
+            Ok(self.function.as_ref().unwrap().name.value.clone())
+        } else {
+            let m = self.method.as_ref().unwrap();
+            Ok(format!("{}.{}", m.source_name.value, m.method_name.value))
+        }
+    }
+
+    /// Get number of parameters for function or method
+    fn paramter_num(&self) -> Result<usize, Error> {
+        if self.function.is_some() && self.method.is_some() {
+            // Only one should have a valid value
+            return Err(Error::UnexpectedState(String::from(
+                "Got both function call and method call in SubroutineCall",
+            )));
+        } else if self.function.is_none() && self.method.is_none() {
+            return Err(Error::UnexpectedState(String::from(
+                "Content of SubroutineCall not found",
+            )));
+        }
+
+        if self.function.is_some() {
+            Ok(self.function.as_ref().unwrap().parameters.list.len())
+        } else {
+            Ok(self.method.as_ref().unwrap().parameters.list.len())
+        }
+    }
 }
 
 impl Term for SubroutineCallTerm {
@@ -1531,6 +1616,14 @@ impl Statement for DoStatement {
         self.subroutine_call.serialize(output, next_level)?;
         self.end.serialize(output, next_level)?;
         output.push_str(&end_tag);
+        Ok(())
+    }
+
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        let caller_name = self.subroutine_call.caller_name()?;
+        let param_num = self.subroutine_call.paramter_num()?;
+        let line = format!("call {} {}{}", caller_name, param_num, NEW_LINE);
+        output.push_str(&line);
         Ok(())
     }
 }
@@ -1595,6 +1688,11 @@ impl Statement for ReturnStatement {
         output.push_str(&end_tag);
         Ok(())
     }
+
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        output.push_str(&format!("return{}", NEW_LINE));
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -1635,6 +1733,14 @@ impl Statement for WhileStatement {
         self.body.end.serialize(output, next_level)?;
         output.push_str(&end_tag);
         Ok(())
+    }
+
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        Err(Error::NotImplemented {
+            file: file!(),
+            line: line!(),
+            column: column!(),
+        })
     }
 }
 
@@ -1820,7 +1926,7 @@ fn parse_subroutine_call(
             let mut f = FunctionCall::new();
             f.name = source.to_owned();
             f.parameter_block.start = next.to_owned();
-            current_idx = parse_expression_list(ctx, &mut f.list, tokens, current_idx + 1)?;
+            current_idx = parse_expression_list(ctx, &mut f.parameters, tokens, current_idx + 1)?;
             let end_token = get_token::<Symbol>(tokens, current_idx);
             if end_token.value != ')' {
                 return Err(Error::UnexpectedSymbol {
@@ -1853,8 +1959,8 @@ fn parse_subroutine_call(
                     column: column!(),
                 });
             }
-            m.parameter.start = start.to_owned();
-            current_idx = parse_expression_list(ctx, &mut m.expression, tokens, current_idx + 1)?;
+            m.parameter_block.start = start.to_owned();
+            current_idx = parse_expression_list(ctx, &mut m.parameters, tokens, current_idx + 1)?;
             let end = get_token::<Symbol>(tokens, current_idx);
             if end.value != ')' {
                 return Err(Error::UnexpectedSymbol {
@@ -1865,7 +1971,7 @@ fn parse_subroutine_call(
                     column: column!(),
                 });
             }
-            m.parameter.end = end.to_owned();
+            m.parameter_block.end = end.to_owned();
             current_idx += 1;
             target.method = Some(m);
         }

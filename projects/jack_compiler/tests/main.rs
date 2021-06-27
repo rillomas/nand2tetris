@@ -70,9 +70,9 @@ fn test_compiler(root: &PathBuf, dir: &str) {
             .expect(format!("Parse failed at {}", io.input_file.display()).as_str());
 
         // Compile to vm text
-        let mut vm = String::from("");
-        let res = class.compile(&ctx, &mut vm);
-        assert!(res.is_ok());
+        let vm = class
+            .compile(&ctx)
+            .expect(format!("Compile failed at {}", io.input_file.display()).as_str());
 
         // Compare with golden
         let mut golden_file_path = io.input_file.clone();
