@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::io::BufRead;
 
 /// Context of the file parsing process
@@ -13,14 +12,6 @@ impl FileContext {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum TokenType {
-    Keyword,
-    Symbol,
-    Identifier,
-    IntegerConst,
-    StringConst,
-}
 pub const NEW_LINE: &str = "\r\n";
 pub const INDENT_STR: &'static str = "  ";
 #[derive(thiserror::Error, Debug)]
@@ -68,7 +59,7 @@ pub fn generate_token_list(file_reader: &mut std::io::BufReader<std::fs::File>) 
 
 #[derive(Debug)]
 pub struct TokenList {
-    pub list: Vec<Box<dyn Token>>,
+    pub list: Vec<Token>,
 }
 
 impl TokenList {
@@ -87,18 +78,60 @@ impl TokenList {
     }
 }
 
-pub trait Token: std::fmt::Debug {
-    fn token(&self) -> TokenType;
+#[derive(Debug, Clone)]
+pub enum Token {
+    Keyword(Keyword),
+    Symbol(Symbol),
+    Identifier(Identifier),
+    IntegerConstant(IntegerConstant),
+    StringConstant(StringConstant),
+}
+
+impl Token {
     /// Serialize each token to XML
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
-    /// Used for downcasting tokens
-    fn as_any(&self) -> &dyn Any;
-    /// Create a boxed clone of the token itself.
-    /// We have this interface since Clone trait cannot be required for a trait,
-    /// and there are cases where we still want to clone token instances
-    fn boxed_clone(&self) -> Box<dyn Token>;
+    pub fn serialize(
+        &self,
+        output: &mut String,
+        indent_level: usize,
+    ) -> Result<(), SerializeError> {
+        match self {
+            Token::Keyword(k) => k.serialize(output, indent_level),
+            Token::Symbol(s) => s.serialize(output, indent_level),
+            Token::Identifier(i) => i.serialize(output, indent_level),
+            Token::IntegerConstant(ic) => ic.serialize(output, indent_level),
+            Token::StringConstant(sc) => sc.serialize(output, indent_level),
+        }
+    }
+
     /// Get a string representation of token
-    fn string(&self) -> String;
+    pub fn string(&self) -> String {
+        match self {
+            Token::Keyword(k) => k.string(),
+            Token::Symbol(s) => s.string(),
+            Token::Identifier(i) => i.string(),
+            Token::IntegerConstant(ic) => ic.string(),
+            Token::StringConstant(sc) => sc.string(),
+        }
+    }
+
+    pub fn symbol(&self) -> Option<&Symbol> {
+        match self {
+            Token::Symbol(s) => Some(s),
+            _ => None,
+        }
+    }
+    pub fn identifier(&self) -> Option<&Identifier> {
+        match self {
+            Token::Identifier(i) => Some(i),
+            _ => None,
+        }
+    }
+    pub fn keyword(&self) -> Option<&Keyword> {
+        match self {
+            Token::Keyword(k) => Some(k),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -162,12 +195,12 @@ impl Keyword {
         }
     }
 }
-impl Token for Keyword {
-    fn token(&self) -> TokenType {
-        TokenType::Keyword
-    }
-
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+impl Keyword {
+    pub fn serialize(
+        &self,
+        output: &mut String,
+        indent_level: usize,
+    ) -> Result<(), SerializeError> {
         let tag = "keyword";
         let indent = INDENT_STR.repeat(indent_level);
         let str = format!("{0}<{1}> {2} </{1}>{3}", indent, tag, self.value, NEW_LINE);
@@ -175,15 +208,7 @@ impl Token for Keyword {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn boxed_clone(&self) -> Box<dyn Token> {
-        Box::new(self.clone())
-    }
-
-    fn string(&self) -> String {
+    pub fn string(&self) -> String {
         self.value.to_owned()
     }
 }
@@ -212,11 +237,12 @@ fn escape_char(c: &char) -> String {
     }
 }
 
-impl Token for Symbol {
-    fn token(&self) -> TokenType {
-        TokenType::Symbol
-    }
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+impl Symbol {
+    pub fn serialize(
+        &self,
+        output: &mut String,
+        indent_level: usize,
+    ) -> Result<(), SerializeError> {
         let tag = "symbol";
         let escaped = escape_char(&self.value);
         let indent = INDENT_STR.repeat(indent_level);
@@ -225,15 +251,7 @@ impl Token for Symbol {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn boxed_clone(&self) -> Box<dyn Token> {
-        Box::new(self.clone())
-    }
-
-    fn string(&self) -> String {
+    pub fn string(&self) -> String {
         self.value.to_string()
     }
 }
@@ -251,11 +269,12 @@ impl Identifier {
     }
 }
 
-impl Token for Identifier {
-    fn token(&self) -> TokenType {
-        TokenType::Identifier
-    }
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+impl Identifier {
+    pub fn serialize(
+        &self,
+        output: &mut String,
+        indent_level: usize,
+    ) -> Result<(), SerializeError> {
         let tag = "identifier";
         let indent = INDENT_STR.repeat(indent_level);
         let str = format!("{0}<{1}> {2} </{1}>{3}", indent, tag, self.value, NEW_LINE);
@@ -263,15 +282,7 @@ impl Token for Identifier {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn boxed_clone(&self) -> Box<dyn Token> {
-        Box::new(self.clone())
-    }
-
-    fn string(&self) -> String {
+    pub fn string(&self) -> String {
         self.value.to_owned()
     }
 }
@@ -281,12 +292,12 @@ pub struct IntegerConstant {
     value: u16,
 }
 
-impl Token for IntegerConstant {
-    fn token(&self) -> TokenType {
-        TokenType::IntegerConst
-    }
-
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+impl IntegerConstant {
+    pub fn serialize(
+        &self,
+        output: &mut String,
+        indent_level: usize,
+    ) -> Result<(), SerializeError> {
         let tag = "integerConstant";
         let indent = INDENT_STR.repeat(indent_level);
         let str = format!("{0}<{1}> {2} </{1}>{3}", indent, tag, self.value, NEW_LINE);
@@ -294,15 +305,7 @@ impl Token for IntegerConstant {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn boxed_clone(&self) -> Box<dyn Token> {
-        Box::new(self.clone())
-    }
-
-    fn string(&self) -> String {
+    pub fn string(&self) -> String {
         self.value.to_string()
     }
 }
@@ -312,12 +315,12 @@ pub struct StringConstant {
     value: String,
 }
 
-impl Token for StringConstant {
-    fn token(&self) -> TokenType {
-        TokenType::StringConst
-    }
-
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+impl StringConstant {
+    pub fn serialize(
+        &self,
+        output: &mut String,
+        indent_level: usize,
+    ) -> Result<(), SerializeError> {
         let tag = "stringConstant";
         let indent = INDENT_STR.repeat(indent_level);
         let str = format!("{0}<{1}> {2} </{1}>{3}", indent, tag, self.value, NEW_LINE);
@@ -325,15 +328,7 @@ impl Token for StringConstant {
         Ok(())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn boxed_clone(&self) -> Box<dyn Token> {
-        Box::new(self.clone())
-    }
-
-    fn string(&self) -> String {
+    pub fn string(&self) -> String {
         self.value.to_owned()
     }
 }
@@ -450,7 +445,7 @@ fn update_comment_state(state: &mut CommentState, c: char) -> LineParseResult {
 }
 
 /// Create token by analyzing the content
-fn extract_token(stash: &Vec<char>) -> Result<Box<dyn Token>, &str> {
+fn extract_token(stash: &Vec<char>) -> Result<Token, &str> {
     let len = stash.len();
     if len == 0 {
         return Err("Empty stash given");
@@ -459,23 +454,23 @@ fn extract_token(stash: &Vec<char>) -> Result<Box<dyn Token>, &str> {
 
     if len == 1 && SYMBOL_LIST.contains(&stash[0]) {
         // Got a symbol
-        Ok(Box::new(Symbol { value: stash[0] }))
+        Ok(Token::Symbol(Symbol { value: stash[0] }))
     } else if stash[0].is_ascii_digit() {
         // If the first symbol is an integer it is an integer const
-        Ok(Box::new(IntegerConstant {
+        Ok(Token::IntegerConstant(IntegerConstant {
             value: str::parse::<u16>(&word.as_str()).unwrap(),
         }))
     } else if KEYWORD_LIST.contains(&word.as_str()) {
         // If the word matches keyword list we return keyword
-        Ok(Box::new(Keyword { value: word }))
+        Ok(Token::Keyword(Keyword { value: word }))
     } else {
         // all other cases are identifiers
-        Ok(Box::new(Identifier { value: word }))
+        Ok(Token::Identifier(Identifier { value: word }))
     }
 }
 
-pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> {
-    let mut token_list: Vec<Box<dyn Token>> = Vec::new();
+pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Token> {
+    let mut token_list = Vec::new();
     let mut ctx = LineContext {
         comment: CommentState {
             in_region: context.in_comment,
@@ -495,7 +490,7 @@ pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> 
                 // We are now at end of string
                 // Get all stashed characters and push to token list
                 let str = ctx.char_stash.iter().collect();
-                token_list.push(Box::new(StringConstant { value: str }));
+                token_list.push(Token::StringConstant(StringConstant { value: str }));
                 ctx.char_stash.clear();
                 ctx.in_string = false;
             } else {
@@ -545,7 +540,7 @@ pub fn parse_line(context: &mut FileContext, line: &str) -> Vec<Box<dyn Token>> 
                             token_list.push(extract_token(&ctx.char_stash).unwrap());
                             ctx.char_stash.clear();
                         }
-                        token_list.push(Box::new(Symbol { value: c }));
+                        token_list.push(Token::Symbol(Symbol { value: c }));
                     }
                 }
             } else {

@@ -1,7 +1,7 @@
 use super::tokenizer;
 use super::tokenizer::{
     generate_token_list, Identifier, IntegerConstant, Keyword, KeywordType, SerializeError,
-    StringConstant, Symbol, Token, TokenList, TokenType, INDENT_STR, NEW_LINE,
+    StringConstant, Symbol, Token, TokenList, INDENT_STR, NEW_LINE,
 };
 use std::collections::HashMap;
 
@@ -24,7 +24,7 @@ const EXPRESSION: &'static str = "expression";
 pub enum Error {
     #[error("{file} {line}:{column} Got unexpected token at {index}: {token:?}")]
     UnexpectedToken {
-        token: Box<dyn Token>,
+        token: Token,
         index: usize,
         file: &'static str,
         line: u32,
@@ -233,7 +233,7 @@ impl Class {
 
 struct ClassVarDec {
     prefix: Keyword,
-    var_type: Box<dyn Token>, // var_type maybe a Keyword or an Identifier
+    var_type: Token, // var_type maybe a Keyword or an Identifier
     var_names: Vec<Identifier>,
     var_delimiter: Vec<Symbol>,
     end_symbol: Symbol,
@@ -243,7 +243,7 @@ impl ClassVarDec {
     fn new(prefix: Keyword) -> ClassVarDec {
         ClassVarDec {
             prefix: prefix,
-            var_type: Box::new(Keyword::new()),
+            var_type: Token::Keyword(Keyword::new()),
             var_names: Vec::new(),
             var_delimiter: Vec::new(),
             end_symbol: Symbol::new(),
@@ -289,7 +289,7 @@ impl ClassVarDec {
 
 struct SubroutineDec {
     prefix: Keyword,
-    return_type: Box<dyn Token>, // return_type is a Keyword or an Identifier
+    return_type: Token, // return_type is a Keyword or an Identifier
     name: Identifier,
     param_list: ParameterList,
     body: SubroutineBody,
@@ -299,7 +299,7 @@ impl SubroutineDec {
     fn new(prefix: Keyword) -> SubroutineDec {
         SubroutineDec {
             prefix: prefix,
-            return_type: Box::new(Keyword::new()),
+            return_type: Token::Keyword(Keyword::new()),
             name: Identifier::new(),
             param_list: ParameterList::new(),
             body: SubroutineBody::new(),
@@ -348,7 +348,7 @@ impl SubroutineDec {
 
 struct ParameterList {
     block: Block,
-    param_type: Vec<Box<dyn Token>>, // param_type is a Keyword or an Identifier
+    param_type: Vec<Token>, // param_type is a Keyword or an Identifier
     name: Vec<Identifier>,
     delimiter: Vec<Symbol>,
 }
@@ -396,10 +396,6 @@ impl ParameterList {
     }
 }
 
-fn get_token<T: 'static>(tokens: &TokenList, index: usize) -> &T {
-    tokens.list[index].as_any().downcast_ref::<T>().unwrap()
-}
-
 fn parse_parameter_list(
     ctx: &mut Context,
     target: &mut ParameterList,
@@ -407,7 +403,7 @@ fn parse_parameter_list(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let s = get_token::<Symbol>(tokens, current_idx);
+    let s = tokens.list[current_idx].symbol().unwrap();
     if s.value != '(' {
         return Err(Error::UnexpectedSymbol {
             symbol: s.value,
@@ -424,9 +420,8 @@ fn parse_parameter_list(
     let mut got_param_type = false;
     loop {
         let tk = &tokens.list[current_idx];
-        match tk.token() {
-            TokenType::Symbol => {
-                let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+        match tk {
+            Token::Symbol(s) => {
                 match s.value {
                     ')' => {
                         // We got end of param list symbol so we store it and go next
@@ -450,33 +445,31 @@ fn parse_parameter_list(
                     }
                 }
             }
-            TokenType::Keyword => {
+            Token::Keyword(_) => {
                 // should be a builtin type
                 target
                     .param_type
-                    .push(parse_type(ctx, tk, current_idx)?.boxed_clone());
+                    .push(parse_type(ctx, tk, current_idx)?.to_owned());
                 got_param_type = true;
                 current_idx += 1;
             }
-            TokenType::Identifier => {
+            Token::Identifier(id) => {
                 if got_param_type {
                     // should be name of param
-                    target
-                        .name
-                        .push(tk.as_any().downcast_ref::<Identifier>().unwrap().to_owned());
+                    target.name.push(id.to_owned());
                     got_param_type = false
                 } else {
                     // should be a class name
                     target
                         .param_type
-                        .push(parse_type(ctx, tk, current_idx)?.boxed_clone());
+                        .push(parse_type(ctx, tk, current_idx)?.to_owned());
                     got_param_type = true;
                 }
                 current_idx += 1;
             }
             _other => {
                 return Err(Error::UnexpectedToken {
-                    token: tk.boxed_clone(),
+                    token: _other.to_owned(),
                     index: current_idx,
                     file: file!(),
                     line: line!(),
@@ -530,7 +523,7 @@ fn parse_subroutine_body(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let s = get_token::<Symbol>(tokens, current_idx);
+    let s = tokens.list[current_idx].symbol().unwrap();
     if s.value != '{' {
         return Err(Error::UnexpectedSymbol {
             symbol: s.value,
@@ -544,9 +537,8 @@ fn parse_subroutine_body(
     current_idx += 1;
     loop {
         let tk = &tokens.list[current_idx];
-        match tk.token() {
-            TokenType::Symbol => {
-                let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+        match tk {
+            Token::Symbol(s) => {
                 match s.value {
                     '}' => {
                         // We got end of subroutine body symbol so we store it and go next
@@ -565,8 +557,7 @@ fn parse_subroutine_body(
                     }
                 }
             }
-            TokenType::Keyword => {
-                let k = tk.as_any().downcast_ref::<Keyword>().unwrap();
+            Token::Keyword(k) => {
                 match k.keyword() {
                     KeywordType::Var => {
                         // If we get 'var' it means we have a varDec
@@ -600,7 +591,7 @@ fn parse_subroutine_body(
             }
             _other => {
                 return Err(Error::UnexpectedToken {
-                    token: tk.boxed_clone(),
+                    token: _other.to_owned(),
                     index: current_idx,
                     file: file!(),
                     line: line!(),
@@ -613,10 +604,10 @@ fn parse_subroutine_body(
 }
 
 struct VarDec {
-    prefix: Keyword,          // Should be 'var'
-    var_type: Box<dyn Token>, // Should be a Keyword or an Identifier
-    names: Vec<Identifier>,   // List of names of variables
-    delimiter: Vec<Symbol>,   // Delimiters between variable names
+    prefix: Keyword,        // Should be 'var'
+    var_type: Token,        // Should be a Keyword or an Identifier
+    names: Vec<Identifier>, // List of names of variables
+    delimiter: Vec<Symbol>, // Delimiters between variable names
     end: Symbol,
 }
 
@@ -624,7 +615,7 @@ impl VarDec {
     fn new() -> VarDec {
         VarDec {
             prefix: Keyword::new(),
-            var_type: Box::new(Keyword::new()),
+            var_type: Token::Keyword(Keyword::new()),
             names: Vec::new(),
             delimiter: Vec::new(),
             end: Symbol::new(),
@@ -666,18 +657,17 @@ fn parse_var_dec(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.var_type = parse_type(ctx, &tokens.list[current_idx], current_idx)?.boxed_clone();
+    target.var_type = parse_type(ctx, &tokens.list[current_idx], current_idx)?.to_owned();
     current_idx += 1;
     target
         .names
-        .push(get_token::<Identifier>(tokens, current_idx).to_owned());
+        .push(tokens.list[current_idx].identifier().unwrap().to_owned());
     current_idx += 1;
     // if next token is delimiter
     loop {
         let tk = &tokens.list[current_idx];
-        match tk.token() {
-            TokenType::Symbol => {
-                let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+        match tk {
+            Token::Symbol(s) => {
                 match s.value {
                     ';' => {
                         // We got end of VarDec symbol so we store it and go next
@@ -691,7 +681,7 @@ fn parse_var_dec(
                         current_idx += 1;
                         target
                             .names
-                            .push(get_token::<Identifier>(tokens, current_idx).to_owned());
+                            .push(tokens.list[current_idx].identifier().unwrap().to_owned());
                         current_idx += 1;
                     }
                     _other => {
@@ -707,7 +697,7 @@ fn parse_var_dec(
             }
             _other => {
                 return Err(Error::UnexpectedToken {
-                    token: tk.boxed_clone(),
+                    token: _other.to_owned(),
                     index: current_idx,
                     file: file!(),
                     line: line!(),
@@ -820,43 +810,59 @@ impl ExpressionInParenthesisTerm {
     }
 }
 
-fn serialize_term(
-    t: &dyn Token,
-    output: &mut String,
-    indent_level: usize,
-) -> Result<(), SerializeError> {
-    let label = TERM;
-    let indent = INDENT_STR.repeat(indent_level);
-    let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
-    let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
-    output.push_str(&start_tag);
-    let next_level = indent_level + 1;
-    t.serialize(output, next_level)?;
-    output.push_str(&end_tag);
-    Ok(())
-}
-
 impl Term for IntegerTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        serialize_term(&self.integer, output, indent_level)
+        let label = TERM;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.integer.serialize(output, next_level)?;
+        output.push_str(&end_tag);
+        Ok(())
     }
 }
 
 impl Term for StringTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        serialize_term(&self.string, output, indent_level)
+        let label = TERM;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.string.serialize(output, next_level)?;
+        output.push_str(&end_tag);
+        Ok(())
     }
 }
 
 impl Term for VarNameTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        serialize_term(&self.name, output, indent_level)
+        let label = TERM;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.name.serialize(output, next_level)?;
+        output.push_str(&end_tag);
+        Ok(())
     }
 }
 
 impl Term for KeywordTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        serialize_term(&self.keyword, output, indent_level)
+        let label = TERM;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        let next_level = indent_level + 1;
+        self.keyword.serialize(output, next_level)?;
+        output.push_str(&end_tag);
+        Ok(())
     }
 }
 
@@ -925,29 +931,20 @@ fn parse_term(
 ) -> Result<(Box<dyn Term>, usize), Error> {
     let mut current_idx = token_index;
     let t = &tokens.list[current_idx];
-    match t.token() {
-        TokenType::IntegerConst => {
+    match t {
+        Token::IntegerConstant(ic) => {
             let i = IntegerTerm {
-                integer: t
-                    .as_any()
-                    .downcast_ref::<IntegerConstant>()
-                    .unwrap()
-                    .to_owned(),
+                integer: ic.to_owned(),
             };
             Ok((Box::new(i), current_idx + 1))
         }
-        TokenType::StringConst => {
+        Token::StringConstant(sc) => {
             let s = StringTerm {
-                string: t
-                    .as_any()
-                    .downcast_ref::<StringConstant>()
-                    .unwrap()
-                    .to_owned(),
+                string: sc.to_owned(),
             };
             Ok((Box::new(s), current_idx + 1))
         }
-        TokenType::Keyword => {
-            let kw = t.as_any().downcast_ref::<Keyword>().unwrap();
+        Token::Keyword(kw) => {
             match kw.keyword() {
                 KeywordType::This | KeywordType::Null | KeywordType::True | KeywordType::False => {
                     // KeywordConstant
@@ -959,14 +956,12 @@ fn parse_term(
                 _other => Err(Error::UnexpectedKeyword(_other)),
             }
         }
-        TokenType::Identifier => {
-            let id = t.as_any().downcast_ref::<Identifier>().unwrap();
+        Token::Identifier(id) => {
             current_idx += 1;
             // Check next token to identify which term we have
             let next = &tokens.list[current_idx];
-            match next.token() {
-                TokenType::Symbol => {
-                    let s = next.as_any().downcast_ref::<Symbol>().unwrap();
+            match next {
+                Token::Symbol(s) => {
                     match s.value {
                         '[' => {
                             // parse array
@@ -979,7 +974,7 @@ fn parse_term(
                                 tokens,
                                 current_idx + 1,
                             )?;
-                            let close_brace = get_token::<Symbol>(tokens, current_idx);
+                            let close_brace = tokens.list[current_idx].symbol().unwrap();
                             if close_brace.value != ']' {
                                 return Err(Error::UnexpectedSymbol {
                                     symbol: close_brace.value,
@@ -1006,10 +1001,10 @@ fn parse_term(
                             mc.source_name = id.to_owned();
                             mc.dot = s.to_owned();
                             current_idx += 1;
-                            let subroutine = get_token::<Identifier>(tokens, current_idx);
+                            let subroutine = tokens.list[current_idx].identifier().unwrap();
                             mc.method_name = subroutine.to_owned();
                             current_idx += 1;
-                            let open_paren = get_token::<Symbol>(tokens, current_idx);
+                            let open_paren = tokens.list[current_idx].symbol().unwrap();
                             if open_paren.value != '(' {
                                 return Err(Error::UnexpectedSymbol {
                                     symbol: open_paren.value,
@@ -1026,7 +1021,7 @@ fn parse_term(
                                 tokens,
                                 current_idx + 1,
                             )?;
-                            let close_paren = get_token::<Symbol>(tokens, current_idx);
+                            let close_paren = tokens.list[current_idx].symbol().unwrap();
                             if close_paren.value != ')' {
                                 return Err(Error::UnexpectedSymbol {
                                     symbol: close_paren.value,
@@ -1059,15 +1054,14 @@ fn parse_term(
                 }
             }
         }
-        TokenType::Symbol => {
-            let s = t.as_any().downcast_ref::<Symbol>().unwrap();
+        Token::Symbol(s) => {
             match s.value {
                 '(' => {
                     let mut exp = ExpressionInParenthesisTerm::new();
                     exp.block.start = s.to_owned();
                     current_idx =
                         parse_expression(ctx, &mut exp.expression, tokens, current_idx + 1)?;
-                    let end = get_token::<Symbol>(tokens, current_idx);
+                    let end = tokens.list[current_idx].symbol().unwrap();
                     if end.value != ')' {
                         return Err(Error::UnexpectedSymbol {
                             symbol: end.value,
@@ -1110,9 +1104,8 @@ fn parse_expression(
     let mut current_idx = token_index;
     loop {
         let t = &tokens.list[current_idx];
-        match t.token() {
-            TokenType::Symbol => {
-                let s = t.as_any().downcast_ref::<Symbol>().unwrap();
+        match t {
+            Token::Symbol(s) => {
                 match s.value {
                     '-' => {
                         // May be a unary op or a normal op
@@ -1396,9 +1389,8 @@ fn parse_expression_list(
     let mut current_idx = token_index;
     loop {
         let tk = &tokens.list[current_idx];
-        match tk.token() {
-            TokenType::Symbol => {
-                let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+        match tk {
+            Token::Symbol(s) => {
                 match s.value {
                     ')' => {
                         // End of expression list
@@ -1721,10 +1713,10 @@ fn parse_let_statement(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.var_name = get_token::<Identifier>(tokens, current_idx).to_owned();
+    target.var_name = tokens.list[current_idx].identifier().unwrap().to_owned();
     current_idx += 1;
     loop {
-        let s = get_token::<Symbol>(tokens, current_idx);
+        let s = tokens.list[current_idx].symbol().unwrap();
         match s.value {
             ';' => {
                 // Reached end of let statement
@@ -1737,7 +1729,7 @@ fn parse_let_statement(
                 let mut arr = ArrayExpression::new();
                 arr.block.start = s.to_owned();
                 current_idx = parse_expression(ctx, &mut arr.expression, tokens, current_idx + 1)?;
-                let end_token = get_token::<Symbol>(tokens, current_idx);
+                let end_token = tokens.list[current_idx].symbol().unwrap();
                 if end_token.value != ']' {
                     return Err(Error::UnexpectedSymbol {
                         symbol: end_token.value,
@@ -1778,7 +1770,7 @@ fn parse_else_block(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let block_start = get_token::<Symbol>(tokens, current_idx);
+    let block_start = tokens.list[current_idx].symbol().unwrap();
     if block_start.value != '{' {
         return Err(Error::UnexpectedSymbol {
             symbol: block_start.value,
@@ -1790,7 +1782,7 @@ fn parse_else_block(
     }
     target.statement_block.start = block_start.to_owned();
     current_idx = parse_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
-    let block_end = get_token::<Symbol>(tokens, current_idx);
+    let block_end = tokens.list[current_idx].symbol().unwrap();
     if block_end.value != '}' {
         return Err(Error::UnexpectedSymbol {
             symbol: block_end.value,
@@ -1811,7 +1803,7 @@ fn parse_if_statement(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let cond_start = get_token::<Symbol>(tokens, current_idx);
+    let cond_start = tokens.list[current_idx].symbol().unwrap();
     if cond_start.value != '(' {
         return Err(Error::UnexpectedSymbol {
             symbol: cond_start.value,
@@ -1823,7 +1815,7 @@ fn parse_if_statement(
     }
     target.cond_block.start = cond_start.to_owned();
     current_idx = parse_expression(ctx, &mut target.condition, tokens, current_idx + 1)?;
-    let cond_end = get_token::<Symbol>(tokens, current_idx);
+    let cond_end = tokens.list[current_idx].symbol().unwrap();
     if cond_end.value != ')' {
         return Err(Error::UnexpectedSymbol {
             symbol: cond_end.value,
@@ -1835,7 +1827,7 @@ fn parse_if_statement(
     }
     target.cond_block.end = cond_end.to_owned();
     current_idx += 1;
-    let body_start = get_token::<Symbol>(tokens, current_idx);
+    let body_start = tokens.list[current_idx].symbol().unwrap();
     if body_start.value != '{' {
         return Err(Error::UnexpectedSymbol {
             symbol: body_start.value,
@@ -1847,7 +1839,7 @@ fn parse_if_statement(
     }
     target.statement_block.start = body_start.to_owned();
     current_idx = parse_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
-    let body_end = get_token::<Symbol>(tokens, current_idx);
+    let body_end = tokens.list[current_idx].symbol().unwrap();
     if body_end.value != '}' {
         return Err(Error::UnexpectedSymbol {
             symbol: body_end.value,
@@ -1862,11 +1854,11 @@ fn parse_if_statement(
     // Check if next token is 'else' and if so we parse the else block.
     // If it is anything else we assume it is some other statement and return
     let maybe_else = &tokens.list[current_idx];
-    if !matches!(maybe_else.token(), TokenType::Keyword) {
+    if !matches!(maybe_else, Token::Keyword(_)) {
         // Next token is not else so we return
         return Ok(current_idx);
     }
-    let k = maybe_else.as_any().downcast_ref::<Keyword>().unwrap();
+    let k = maybe_else.keyword().unwrap();
     if !matches!(k.keyword(), KeywordType::Else) {
         // Next keyword is not else so we return
         return Ok(current_idx);
@@ -1886,10 +1878,10 @@ fn parse_subroutine_call(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let source = get_token::<Identifier>(tokens, current_idx);
+    let source = tokens.list[current_idx].identifier().unwrap();
     current_idx += 1;
     // parsing branches depending on next symbol
-    let next = get_token::<Symbol>(tokens, current_idx);
+    let next = tokens.list[current_idx].symbol().unwrap();
     match next.value {
         '(' => {
             // function call
@@ -1897,7 +1889,7 @@ fn parse_subroutine_call(
             f.name = source.to_owned();
             f.parameter_block.start = next.to_owned();
             current_idx = parse_expression_list(ctx, &mut f.parameters, tokens, current_idx + 1)?;
-            let end_token = get_token::<Symbol>(tokens, current_idx);
+            let end_token = tokens.list[current_idx].symbol().unwrap();
             if end_token.value != ')' {
                 return Err(Error::UnexpectedSymbol {
                     symbol: end_token.value,
@@ -1917,9 +1909,9 @@ fn parse_subroutine_call(
             m.source_name = source.to_owned();
             m.dot = next.to_owned();
             current_idx += 1;
-            m.method_name = get_token::<Identifier>(tokens, current_idx).to_owned();
+            m.method_name = tokens.list[current_idx].identifier().unwrap().to_owned();
             current_idx += 1;
-            let start = get_token::<Symbol>(tokens, current_idx);
+            let start = tokens.list[current_idx].symbol().unwrap();
             if start.value != '(' {
                 return Err(Error::UnexpectedSymbol {
                     symbol: start.value,
@@ -1931,7 +1923,7 @@ fn parse_subroutine_call(
             }
             m.parameter_block.start = start.to_owned();
             current_idx = parse_expression_list(ctx, &mut m.parameters, tokens, current_idx + 1)?;
-            let end = get_token::<Symbol>(tokens, current_idx);
+            let end = tokens.list[current_idx].symbol().unwrap();
             if end.value != ')' {
                 return Err(Error::UnexpectedSymbol {
                     symbol: end.value,
@@ -1965,7 +1957,7 @@ fn parse_do_statement(
     token_index: usize,
 ) -> Result<usize, Error> {
     let current_idx = parse_subroutine_call(ctx, &mut target.subroutine_call, tokens, token_index)?;
-    let end_token = get_token::<Symbol>(tokens, current_idx);
+    let end_token = tokens.list[current_idx].symbol().unwrap();
     if end_token.value != ';' {
         return Err(Error::UnexpectedSymbol {
             symbol: end_token.value,
@@ -1987,9 +1979,8 @@ fn parse_return_statement(
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
     let tk = &tokens.list[current_idx];
-    match tk.token() {
-        TokenType::Symbol => {
-            let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+    match tk {
+        Token::Symbol(s) => {
             match s.value {
                 ';' => {
                     // Reached end of statement
@@ -2001,7 +1992,7 @@ fn parse_return_statement(
                     let mut e = Expression::new();
                     current_idx = parse_expression(ctx, &mut e, tokens, current_idx).unwrap();
                     target.expression = Some(e);
-                    let end = get_token::<Symbol>(tokens, current_idx);
+                    let end = tokens.list[current_idx].symbol().unwrap();
                     if end.value != ';' {
                         return Err(Error::UnexpectedSymbol {
                             symbol: end.value,
@@ -2021,7 +2012,7 @@ fn parse_return_statement(
             let mut e = Expression::new();
             current_idx = parse_expression(ctx, &mut e, tokens, current_idx).unwrap();
             target.expression = Some(e);
-            let end = get_token::<Symbol>(tokens, current_idx);
+            let end = tokens.list[current_idx].symbol().unwrap();
             if end.value != ';' {
                 return Err(Error::UnexpectedSymbol {
                     symbol: end.value,
@@ -2045,7 +2036,7 @@ fn parse_while_statement(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    let cond_start = get_token::<Symbol>(tokens, current_idx);
+    let cond_start = tokens.list[current_idx].symbol().unwrap();
     if cond_start.value != '(' {
         return Err(Error::UnexpectedSymbol {
             symbol: cond_start.value,
@@ -2057,7 +2048,7 @@ fn parse_while_statement(
     }
     target.condition.start = cond_start.to_owned();
     current_idx = parse_expression(ctx, &mut target.expression, tokens, current_idx + 1)?;
-    let cond_end = get_token::<Symbol>(tokens, current_idx);
+    let cond_end = tokens.list[current_idx].symbol().unwrap();
     if cond_end.value != ')' {
         return Err(Error::UnexpectedSymbol {
             symbol: cond_end.value,
@@ -2069,7 +2060,7 @@ fn parse_while_statement(
     }
     target.condition.end = cond_end.to_owned();
     current_idx += 1;
-    let body_start = get_token::<Symbol>(tokens, current_idx);
+    let body_start = tokens.list[current_idx].symbol().unwrap();
     if body_start.value != '{' {
         return Err(Error::UnexpectedSymbol {
             symbol: body_start.value,
@@ -2081,7 +2072,7 @@ fn parse_while_statement(
     }
     target.body.start = body_start.to_owned();
     current_idx = parse_statements(ctx, &mut target.statements, tokens, current_idx + 1)?;
-    let body_end = get_token::<Symbol>(tokens, current_idx);
+    let body_end = tokens.list[current_idx].symbol().unwrap();
     if body_end.value != '}' {
         return Err(Error::UnexpectedSymbol {
             symbol: body_end.value,
@@ -2104,47 +2095,43 @@ fn parse_statements(
     let mut current_idx = token_index;
     loop {
         let tk = &tokens.list[current_idx];
-        match tk.token() {
-            TokenType::Keyword => {
-                let k = tk.as_any().downcast_ref::<Keyword>().unwrap();
-                match k.keyword() {
-                    KeywordType::Let => {
-                        let mut l = LetStatement::new();
-                        l.keyword = k.to_owned();
-                        current_idx = parse_let_statement(ctx, &mut l, tokens, current_idx + 1)?;
-                        target.list.push(Box::new(l));
-                    }
-                    KeywordType::If => {
-                        let mut i = IfStatement::new();
-                        i.keyword = k.to_owned();
-                        current_idx = parse_if_statement(ctx, &mut i, tokens, current_idx + 1)?;
-                        target.list.push(Box::new(i));
-                    }
-                    KeywordType::While => {
-                        let mut w = WhileStatement::new();
-                        w.keyword = k.to_owned();
-                        current_idx = parse_while_statement(ctx, &mut w, tokens, current_idx + 1)?;
-                        target.list.push(Box::new(w));
-                    }
-                    KeywordType::Do => {
-                        let mut d = DoStatement::new();
-                        d.keyword = k.to_owned();
-                        current_idx = parse_do_statement(ctx, &mut d, tokens, current_idx + 1)?;
-                        target.list.push(Box::new(d));
-                    }
-                    KeywordType::Return => {
-                        let mut r = ReturnStatement::new();
-                        r.keyword = k.to_owned();
-                        current_idx = parse_return_statement(ctx, &mut r, tokens, current_idx + 1)?;
-                        target.list.push(Box::new(r));
-                    }
-                    _other => {
-                        return Err(Error::UnexpectedKeyword(_other));
-                    }
+        match tk {
+            Token::Keyword(k) => match k.keyword() {
+                KeywordType::Let => {
+                    let mut l = LetStatement::new();
+                    l.keyword = k.to_owned();
+                    current_idx = parse_let_statement(ctx, &mut l, tokens, current_idx + 1)?;
+                    target.list.push(Box::new(l));
                 }
-            }
-            TokenType::Symbol => {
-                let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+                KeywordType::If => {
+                    let mut i = IfStatement::new();
+                    i.keyword = k.to_owned();
+                    current_idx = parse_if_statement(ctx, &mut i, tokens, current_idx + 1)?;
+                    target.list.push(Box::new(i));
+                }
+                KeywordType::While => {
+                    let mut w = WhileStatement::new();
+                    w.keyword = k.to_owned();
+                    current_idx = parse_while_statement(ctx, &mut w, tokens, current_idx + 1)?;
+                    target.list.push(Box::new(w));
+                }
+                KeywordType::Do => {
+                    let mut d = DoStatement::new();
+                    d.keyword = k.to_owned();
+                    current_idx = parse_do_statement(ctx, &mut d, tokens, current_idx + 1)?;
+                    target.list.push(Box::new(d));
+                }
+                KeywordType::Return => {
+                    let mut r = ReturnStatement::new();
+                    r.keyword = k.to_owned();
+                    current_idx = parse_return_statement(ctx, &mut r, tokens, current_idx + 1)?;
+                    target.list.push(Box::new(r));
+                }
+                _other => {
+                    return Err(Error::UnexpectedKeyword(_other));
+                }
+            },
+            Token::Symbol(s) => {
                 match s.value {
                     '}' => {
                         // Reached end of statements
@@ -2164,7 +2151,7 @@ fn parse_statements(
             }
             _other => {
                 return Err(Error::UnexpectedToken {
-                    token: tk.boxed_clone(),
+                    token: _other.to_owned(),
                     index: current_idx,
                     file: file!(),
                     line: line!(),
@@ -2185,20 +2172,17 @@ fn parse_subroutine_dec(
     let mut current_idx = token_index;
     ctx.method_table.clear(); // clear method symbol table for every new subroutine
     let token = &tokens.list[current_idx];
-    let rt: &dyn Token = match token.token() {
-        TokenType::Keyword => {
-            let word = token.as_any().downcast_ref::<Keyword>().unwrap();
-            match word.keyword() {
-                KeywordType::Int | KeywordType::Char | KeywordType::Boolean | KeywordType::Void => {
-                    word
-                }
-                _other => return Err(Error::UnexpectedKeyword(_other)),
+    let rt = match token {
+        Token::Keyword(word) => match word.keyword() {
+            KeywordType::Int | KeywordType::Char | KeywordType::Boolean | KeywordType::Void => {
+                token
             }
-        }
-        TokenType::Identifier => token.as_any().downcast_ref::<Identifier>().unwrap(),
+            _other => return Err(Error::UnexpectedKeyword(_other)),
+        },
+        Token::Identifier(_) => token,
         _other => {
             return Err(Error::UnexpectedToken {
-                token: token.boxed_clone(),
+                token: _other.to_owned(),
                 index: current_idx,
                 file: file!(),
                 line: line!(),
@@ -2206,9 +2190,9 @@ fn parse_subroutine_dec(
             })
         }
     };
-    target.return_type = rt.boxed_clone();
+    target.return_type = rt.to_owned();
     current_idx += 1;
-    target.name = get_token::<Identifier>(tokens, current_idx).to_owned();
+    target.name = tokens.list[current_idx].identifier().unwrap().to_owned();
     current_idx = parse_parameter_list(ctx, &mut target.param_list, tokens, current_idx + 1)?;
     // add all parameters to symbol table
     for i in 0..target.param_list.name.len() {
@@ -2224,29 +2208,25 @@ fn parse_subroutine_dec(
 
 fn parse_type<'a>(
     ctx: &mut Context,
-    token: &'a Box<dyn Token>,
+    token: &'a Token,
     token_index: usize,
-) -> Result<&'a dyn Token, Error> {
-    match token.token() {
-        TokenType::Keyword => {
-            let word = token.as_any().downcast_ref::<Keyword>().unwrap();
-            match word.keyword() {
-                KeywordType::Int | KeywordType::Char | KeywordType::Boolean => Ok(word),
-                _other => Err(Error::UnexpectedKeyword(_other)),
-            }
-        }
-        TokenType::Identifier => {
-            let id = token.as_any().downcast_ref::<Identifier>().unwrap();
+) -> Result<&'a Token, Error> {
+    match token {
+        Token::Keyword(word) => match word.keyword() {
+            KeywordType::Int | KeywordType::Char | KeywordType::Boolean => Ok(token),
+            _other => Err(Error::UnexpectedKeyword(_other)),
+        },
+        Token::Identifier(id) => {
             // TODO:
             // We should check if a given class name is known, but since we don't have a concrete mechanism for that
             // (and also not required for a parser) we won't be doing it yet.
             // if !ctx.class_names.contains(&id.value) {
             //     return Err(Error::UnknownType(id.value.clone()));
             // }
-            Ok(id)
+            Ok(token)
         }
         _other => Err(Error::UnexpectedToken {
-            token: token.boxed_clone(),
+            token: _other.to_owned(),
             index: token_index,
             file: file!(),
             line: line!(),
@@ -2270,13 +2250,12 @@ fn parse_class_var_dec(
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    target.var_type = parse_type(ctx, &tokens.list[current_idx], current_idx)?.boxed_clone();
+    target.var_type = parse_type(ctx, &tokens.list[current_idx], current_idx)?.to_owned();
     current_idx += 1;
     loop {
         let tk = &tokens.list[current_idx];
-        match tk.token() {
-            TokenType::Symbol => {
-                let s = tk.as_any().downcast_ref::<Symbol>().unwrap();
+        match tk {
+            Token::Symbol(s) => {
                 match s.value {
                     ',' => target.var_delimiter.push(s.to_owned()),
                     ';' => {
@@ -2296,8 +2275,7 @@ fn parse_class_var_dec(
                     }
                 }
             }
-            TokenType::Identifier => {
-                let i = tk.as_any().downcast_ref::<Identifier>().unwrap();
+            Token::Identifier(i) => {
                 target.var_names.push(i.to_owned());
                 ctx.class_table.add_entry(
                     i.string(),
@@ -2307,7 +2285,7 @@ fn parse_class_var_dec(
             }
             _other => {
                 return Err(Error::UnexpectedToken {
-                    token: tk.boxed_clone(),
+                    token: _other.to_owned(),
                     index: current_idx,
                     file: file!(),
                     line: line!(),
@@ -2329,10 +2307,10 @@ fn parse_class(
 ) -> Result<usize, Error> {
     // Check tokens from the head to see if they are valid class tokens
     let mut current_idx = token_index;
-    let name = get_token::<Identifier>(tokens, current_idx);
+    let name = tokens.list[current_idx].identifier().unwrap();
     class.name = name.to_owned();
     current_idx += 1;
-    let open_brace = get_token::<Symbol>(tokens, current_idx);
+    let open_brace = tokens.list[current_idx].symbol().unwrap();
     if open_brace.value != '{' {
         return Err(Error::UnexpectedSymbol {
             symbol: open_brace.value,
@@ -2347,9 +2325,8 @@ fn parse_class(
     loop {
         // Check for classVarDec, subroutineDec, or close brace until the end
         let t = &tokens.list[current_idx];
-        match t.token() {
-            TokenType::Symbol => {
-                let close_brace = t.as_any().downcast_ref::<Symbol>().unwrap();
+        match t {
+            Token::Symbol(close_brace) => {
                 if close_brace.value != '}' {
                     return Err(Error::UnexpectedSymbol {
                         symbol: close_brace.value,
@@ -2359,21 +2336,20 @@ fn parse_class(
                         column: column!(),
                     });
                 }
-                class.end_symbol = close_brace.clone();
+                class.end_symbol = close_brace.to_owned();
                 // Once we reach close brace we exit
                 break;
             }
-            TokenType::Keyword => {
+            Token::Keyword(keyword) => {
                 // We should be looking for keywords indicating classVarDec or subroutineDec
-                let keyword = t.as_any().downcast_ref::<Keyword>().unwrap();
                 match keyword.keyword() {
                     KeywordType::Static | KeywordType::Field => {
-                        let mut cvd = ClassVarDec::new(keyword.clone());
+                        let mut cvd = ClassVarDec::new(keyword.to_owned());
                         current_idx = parse_class_var_dec(ctx, &mut cvd, tokens, current_idx + 1)?;
                         class.class_vars.push(cvd);
                     }
                     KeywordType::Constructor | KeywordType::Function | KeywordType::Method => {
-                        let mut sd = SubroutineDec::new(keyword.clone());
+                        let mut sd = SubroutineDec::new(keyword.to_owned());
                         current_idx = parse_subroutine_dec(ctx, &mut sd, tokens, current_idx + 1)?;
                         class.subroutines.push(sd);
                     }
@@ -2384,7 +2360,7 @@ fn parse_class(
             }
             _other => {
                 return Err(Error::UnexpectedToken {
-                    token: t.boxed_clone(),
+                    token: _other.to_owned(),
                     index: current_idx,
                     file: file!(),
                     line: line!(),
@@ -2403,7 +2379,7 @@ pub fn parse_file(
 ) -> Result<Box<Class>, Error> {
     let tokens = generate_token_list(file_reader);
     let mut current_index = 0;
-    let keyword = get_token::<Keyword>(&tokens, current_index);
+    let keyword = tokens.list[current_index].keyword().unwrap();
     if !matches!(keyword.keyword(), KeywordType::Class) {
         return Err(Error::UnexpectedKeyword(keyword.keyword()));
     }
