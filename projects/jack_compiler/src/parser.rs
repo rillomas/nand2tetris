@@ -1038,7 +1038,7 @@ fn parse_term(
                             }
                             mc.parameter_block.end = close_paren.to_owned();
                             let mut sc = SubroutineCallTerm::new();
-                            sc.call.method = Some(mc);
+                            sc.call.call = CallType::Method(mc);
                             Ok((Box::new(sc), current_idx + 1))
                         }
                         _other => {
@@ -1495,81 +1495,51 @@ impl SubroutineCallTerm {
     }
 }
 
+/// We use enum to restrict the child of SubroutineCall to be either FunctionCall or MethodCall
+#[derive(Debug)]
+enum CallType {
+    Function(FunctionCall),
+    Method(MethodCall),
+}
+
 #[derive(Debug)]
 struct SubroutineCall {
-    function: Option<FunctionCall>,
-    method: Option<MethodCall>,
+    call: CallType,
 }
 impl SubroutineCall {
     fn new() -> SubroutineCall {
         SubroutineCall {
-            function: None,
-            method: None,
+            call: CallType::Function(FunctionCall::new()),
         }
     }
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        if self.function.is_some() && self.method.is_some() {
-            // Only one should have a valid value
-            return Err(SerializeError::UnexpectedState(String::from(
-                "Got both function call and method call in SubroutineCall",
-            )));
-        } else if self.function.is_none() && self.method.is_none() {
-            return Err(SerializeError::UnexpectedState(String::from(
-                "Content of SubroutineCall not found",
-            )));
-        }
-        if self.function.is_some() {
-            self.function
-                .as_ref()
-                .unwrap()
-                .serialize(output, indent_level)?;
-        } else {
-            self.method
-                .as_ref()
-                .unwrap()
-                .serialize(output, indent_level)?;
+        match &self.call {
+            CallType::Function(func) => {
+                func.serialize(output, indent_level)?;
+            }
+            CallType::Method(method) => {
+                method.serialize(output, indent_level)?;
+            }
         }
         Ok(())
     }
 
     /// Get name of caller for function or method
     fn caller_name(&self) -> Result<String, Error> {
-        if self.function.is_some() && self.method.is_some() {
-            // Only one should have a valid value
-            return Err(Error::UnexpectedState(String::from(
-                "Got both function call and method call in SubroutineCall",
-            )));
-        } else if self.function.is_none() && self.method.is_none() {
-            return Err(Error::UnexpectedState(String::from(
-                "Content of SubroutineCall not found",
-            )));
-        }
-
-        if self.function.is_some() {
-            Ok(self.function.as_ref().unwrap().name.value.clone())
-        } else {
-            let m = self.method.as_ref().unwrap();
-            Ok(format!("{}.{}", m.source_name.value, m.method_name.value))
+        match &self.call {
+            CallType::Function(func) => Ok(func.name.value.clone()),
+            CallType::Method(method) => Ok(format!(
+                "{}.{}",
+                method.source_name.value, method.method_name.value
+            )),
         }
     }
 
     /// Get number of parameters for function or method
     fn paramter_num(&self) -> Result<usize, Error> {
-        if self.function.is_some() && self.method.is_some() {
-            // Only one should have a valid value
-            return Err(Error::UnexpectedState(String::from(
-                "Got both function call and method call in SubroutineCall",
-            )));
-        } else if self.function.is_none() && self.method.is_none() {
-            return Err(Error::UnexpectedState(String::from(
-                "Content of SubroutineCall not found",
-            )));
-        }
-
-        if self.function.is_some() {
-            Ok(self.function.as_ref().unwrap().parameters.list.len())
-        } else {
-            Ok(self.method.as_ref().unwrap().parameters.list.len())
+        match &self.call {
+            CallType::Function(func) => Ok(func.parameters.list.len()),
+            CallType::Method(method) => Ok(method.parameters.list.len()),
         }
     }
 }
@@ -1939,7 +1909,7 @@ fn parse_subroutine_call(
             }
             f.parameter_block.end = end_token.to_owned();
             current_idx += 1;
-            target.function = Some(f);
+            target.call = CallType::Function(f);
         }
         '.' => {
             // class/method call
@@ -1973,7 +1943,7 @@ fn parse_subroutine_call(
             }
             m.parameter_block.end = end.to_owned();
             current_idx += 1;
-            target.method = Some(m);
+            target.call = CallType::Method(m);
         }
         _other => {
             return Err(Error::UnexpectedSymbol {
