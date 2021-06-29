@@ -3,8 +3,6 @@ use jack_compiler::{
     parser::{self},
     tokenizer,
 };
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::PathBuf;
 
 const TEST_DIR: &str = "tests";

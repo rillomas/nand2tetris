@@ -711,7 +711,7 @@ fn parse_var_dec(
 
 #[derive(Debug)]
 struct Expression {
-    terms: Vec<Box<dyn Term>>,
+    terms: Vec<Term>,
     ops: Vec<Op>,
 }
 
@@ -751,8 +751,31 @@ impl Expression {
     }
 }
 
-trait Term: std::fmt::Debug {
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
+#[derive(Debug)]
+enum Term {
+    Integer(IntegerTerm),
+    String(StringTerm),
+    Keyword(KeywordTerm),
+    VarName(VarNameTerm),
+    ArrayVar(ArrayVarTerm),
+    Subroutine(SubroutineCallTerm),
+    ExpresssionInParenthesis(ExpressionInParenthesisTerm),
+    UnaryOp(UnaryOpTerm),
+}
+
+impl Term {
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        match self {
+            Term::Integer(i) => i.serialize(output, indent_level),
+            Term::String(s) => s.serialize(output, indent_level),
+            Term::Keyword(k) => k.serialize(output, indent_level),
+            Term::VarName(v) => v.serialize(output, indent_level),
+            Term::ArrayVar(av) => av.serialize(output, indent_level),
+            Term::Subroutine(sr) => sr.serialize(output, indent_level),
+            Term::ExpresssionInParenthesis(e) => e.serialize(output, indent_level),
+            Term::UnaryOp(u) => u.serialize(output, indent_level),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -789,7 +812,12 @@ struct ArrayVarTerm {
 #[derive(Debug)]
 struct UnaryOpTerm {
     op: Symbol,
-    term: Box<dyn Term>,
+    term: Box<Term>,
+}
+
+#[derive(Debug)]
+struct SubroutineCallTerm {
+    call: SubroutineCall,
 }
 
 impl ArrayVarTerm {
@@ -810,7 +838,7 @@ impl ExpressionInParenthesisTerm {
     }
 }
 
-impl Term for IntegerTerm {
+impl IntegerTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = TERM;
         let indent = INDENT_STR.repeat(indent_level);
@@ -824,7 +852,7 @@ impl Term for IntegerTerm {
     }
 }
 
-impl Term for StringTerm {
+impl StringTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = TERM;
         let indent = INDENT_STR.repeat(indent_level);
@@ -838,7 +866,7 @@ impl Term for StringTerm {
     }
 }
 
-impl Term for VarNameTerm {
+impl VarNameTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = TERM;
         let indent = INDENT_STR.repeat(indent_level);
@@ -852,7 +880,7 @@ impl Term for VarNameTerm {
     }
 }
 
-impl Term for KeywordTerm {
+impl KeywordTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = TERM;
         let indent = INDENT_STR.repeat(indent_level);
@@ -866,7 +894,7 @@ impl Term for KeywordTerm {
     }
 }
 
-impl Term for ExpressionInParenthesisTerm {
+impl ExpressionInParenthesisTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = TERM;
         let indent = INDENT_STR.repeat(indent_level);
@@ -882,7 +910,7 @@ impl Term for ExpressionInParenthesisTerm {
     }
 }
 
-impl Term for ArrayVarTerm {
+impl ArrayVarTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = TERM;
         let indent = INDENT_STR.repeat(indent_level);
@@ -897,7 +925,7 @@ impl Term for ArrayVarTerm {
     }
 }
 
-impl Term for UnaryOpTerm {
+impl UnaryOpTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = TERM;
         let indent = INDENT_STR.repeat(indent_level);
@@ -907,6 +935,25 @@ impl Term for UnaryOpTerm {
         let next_level = indent_level + 1;
         self.op.serialize(output, next_level)?;
         self.term.serialize(output, next_level)?;
+        output.push_str(&end_tag);
+        Ok(())
+    }
+}
+
+impl SubroutineCallTerm {
+    fn new() -> SubroutineCallTerm {
+        SubroutineCallTerm {
+            call: SubroutineCall::new(),
+        }
+    }
+
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        let label = TERM;
+        let indent = INDENT_STR.repeat(indent_level);
+        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
+        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
+        output.push_str(&start_tag);
+        self.call.serialize(output, indent_level + 1)?;
         output.push_str(&end_tag);
         Ok(())
     }
@@ -928,7 +975,7 @@ fn parse_term(
     ctx: &mut Context,
     tokens: &TokenList,
     token_index: usize,
-) -> Result<(Box<dyn Term>, usize), Error> {
+) -> Result<(Term, usize), Error> {
     let mut current_idx = token_index;
     let t = &tokens.list[current_idx];
     match t {
@@ -936,13 +983,13 @@ fn parse_term(
             let i = IntegerTerm {
                 integer: ic.to_owned(),
             };
-            Ok((Box::new(i), current_idx + 1))
+            Ok((Term::Integer(i), current_idx + 1))
         }
         Token::StringConstant(sc) => {
             let s = StringTerm {
                 string: sc.to_owned(),
             };
-            Ok((Box::new(s), current_idx + 1))
+            Ok((Term::String(s), current_idx + 1))
         }
         Token::Keyword(kw) => {
             match kw.keyword() {
@@ -951,7 +998,7 @@ fn parse_term(
                     let k = KeywordTerm {
                         keyword: kw.to_owned(),
                     };
-                    Ok((Box::new(k), current_idx + 1))
+                    Ok((Term::Keyword(k), current_idx + 1))
                 }
                 _other => Err(Error::UnexpectedKeyword(_other)),
             }
@@ -985,7 +1032,7 @@ fn parse_term(
                                 });
                             }
                             arr.arr.block.end = close_brace.to_owned();
-                            Ok((Box::new(arr), current_idx + 1))
+                            Ok((Term::ArrayVar(arr), current_idx + 1))
                         }
                         '(' => {
                             // parse subroutineCall (functionCall)
@@ -1034,14 +1081,14 @@ fn parse_term(
                             mc.parameter_block.end = close_paren.to_owned();
                             let mut sc = SubroutineCallTerm::new();
                             sc.call.call = CallType::Method(mc);
-                            Ok((Box::new(sc), current_idx + 1))
+                            Ok((Term::Subroutine(sc), current_idx + 1))
                         }
                         _other => {
                             // If we get any other symbol the first identifier is a varName
                             let t = VarNameTerm {
                                 name: id.to_owned(),
                             };
-                            Ok((Box::new(t), current_idx))
+                            Ok((Term::VarName(t), current_idx))
                         }
                     }
                 }
@@ -1050,7 +1097,7 @@ fn parse_term(
                     let t = VarNameTerm {
                         name: id.to_owned(),
                     };
-                    Ok((Box::new(t), current_idx))
+                    Ok((Term::VarName(t), current_idx))
                 }
             }
         }
@@ -1072,16 +1119,16 @@ fn parse_term(
                         });
                     }
                     exp.block.end = end.to_owned();
-                    Ok((Box::new(exp), current_idx + 1))
+                    Ok((Term::ExpresssionInParenthesis(exp), current_idx + 1))
                 }
                 '-' | '~' => {
                     // Unary op + term
                     let (term, idx) = parse_term(ctx, tokens, current_idx + 1)?;
                     let uot = UnaryOpTerm {
                         op: s.to_owned(),
-                        term: term,
+                        term: Box::new(term),
                     };
-                    Ok((Box::new(uot), idx))
+                    Ok((Term::UnaryOp(uot), idx))
                 }
                 _other => Err(Error::UnexpectedSymbol {
                     symbol: _other,
@@ -1114,9 +1161,9 @@ fn parse_expression(
                             let (term, idx) = parse_term(ctx, tokens, current_idx + 1)?;
                             let uot = UnaryOpTerm {
                                 op: s.to_owned(),
-                                term: term,
+                                term: Box::new(term),
                             };
-                            target.terms.push(Box::new(uot));
+                            target.terms.push(Term::UnaryOp(uot));
                             current_idx = idx;
                         } else {
                             // If we have another term before this we assume a normal op
@@ -1132,9 +1179,9 @@ fn parse_expression(
                         let (term, idx) = parse_term(ctx, tokens, current_idx + 1)?;
                         let uot = UnaryOpTerm {
                             op: s.to_owned(),
-                            term: term,
+                            term: Box::new(term),
                         };
-                        target.terms.push(Box::new(uot));
+                        target.terms.push(Term::UnaryOp(uot));
                         current_idx = idx;
                     }
                     '+' | '*' | '/' | '&' | '|' | '<' | '>' | '=' => {
@@ -1474,19 +1521,6 @@ impl MethodCall {
     }
 }
 
-#[derive(Debug)]
-struct SubroutineCallTerm {
-    call: SubroutineCall,
-}
-
-impl SubroutineCallTerm {
-    fn new() -> SubroutineCallTerm {
-        SubroutineCallTerm {
-            call: SubroutineCall::new(),
-        }
-    }
-}
-
 /// We use enum to restrict the child of SubroutineCall to be either FunctionCall or MethodCall
 #[derive(Debug)]
 enum CallType {
@@ -1533,19 +1567,6 @@ impl SubroutineCall {
             CallType::Function(func) => Ok(func.parameters.list.len()),
             CallType::Method(method) => Ok(method.parameters.list.len()),
         }
-    }
-}
-
-impl Term for SubroutineCallTerm {
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
-        let label = TERM;
-        let indent = INDENT_STR.repeat(indent_level);
-        let start_tag = format!("{0}<{1}>{2}", indent, label, NEW_LINE);
-        let end_tag = format!("{0}</{1}>{2}", indent, label, NEW_LINE);
-        output.push_str(&start_tag);
-        self.call.serialize(output, indent_level + 1)?;
-        output.push_str(&end_tag);
-        Ok(())
     }
 }
 
@@ -2216,7 +2237,7 @@ fn parse_type<'a>(
             KeywordType::Int | KeywordType::Char | KeywordType::Boolean => Ok(token),
             _other => Err(Error::UnexpectedKeyword(_other)),
         },
-        Token::Identifier(id) => {
+        Token::Identifier(_id) => {
             // TODO:
             // We should check if a given class name is known, but since we don't have a concrete mechanism for that
             // (and also not required for a parser) we won't be doing it yet.
