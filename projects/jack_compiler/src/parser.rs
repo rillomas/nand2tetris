@@ -1229,10 +1229,36 @@ impl Block {
     }
 }
 
-trait Statement: std::fmt::Debug {
+#[derive(Debug)]
+enum Statement {
+    Let(LetStatement),
+    If(IfStatement),
+    While(WhileStatement),
+    Do(DoStatement),
+    Return(ReturnStatement),
+}
+
+impl Statement {
     /// Serialize statement at the specified indent level
-    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError>;
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error>;
+    fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
+        match self {
+            Statement::Let(l) => l.serialize(output, indent_level),
+            Statement::If(i) => i.serialize(output, indent_level),
+            Statement::While(w) => w.serialize(output, indent_level),
+            Statement::Do(d) => d.serialize(output, indent_level),
+            Statement::Return(r) => r.serialize(output, indent_level),
+        }
+    }
+
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        match self {
+            Statement::Let(l) => l.compile(context, output),
+            Statement::If(i) => i.compile(context, output),
+            Statement::While(w) => w.compile(context, output),
+            Statement::Do(d) => d.compile(context, output),
+            Statement::Return(r) => r.compile(context, output),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1280,7 +1306,7 @@ impl LetStatement {
     }
 }
 
-impl Statement for LetStatement {
+impl LetStatement {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = LET_STATEMENT;
         let indent = INDENT_STR.repeat(indent_level);
@@ -1351,7 +1377,7 @@ impl IfStatement {
     }
 }
 
-impl Statement for IfStatement {
+impl IfStatement {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = IF_STATEMENT;
         let indent = INDENT_STR.repeat(indent_level);
@@ -1587,7 +1613,7 @@ impl DoStatement {
     }
 }
 
-impl Statement for DoStatement {
+impl DoStatement {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = DO_STATEMENT;
         let indent = INDENT_STR.repeat(indent_level);
@@ -1612,7 +1638,7 @@ impl Statement for DoStatement {
 }
 #[derive(Debug)]
 struct StatementList {
-    list: Vec<Box<dyn Statement>>,
+    list: Vec<Statement>,
 }
 
 impl StatementList {
@@ -1650,9 +1676,6 @@ impl ReturnStatement {
             end: Symbol::new(),
         }
     }
-}
-
-impl Statement for ReturnStatement {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = RETURN_STATEMENT;
         let indent = INDENT_STR.repeat(indent_level);
@@ -1697,9 +1720,7 @@ impl WhileStatement {
             statements: StatementList::new(),
         }
     }
-}
 
-impl Statement for WhileStatement {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = WHILE_STATEMENT;
         let indent = INDENT_STR.repeat(indent_level);
@@ -2122,31 +2143,31 @@ fn parse_statements(
                     let mut l = LetStatement::new();
                     l.keyword = k.to_owned();
                     current_idx = parse_let_statement(ctx, &mut l, tokens, current_idx + 1)?;
-                    target.list.push(Box::new(l));
+                    target.list.push(Statement::Let(l));
                 }
                 KeywordType::If => {
                     let mut i = IfStatement::new();
                     i.keyword = k.to_owned();
                     current_idx = parse_if_statement(ctx, &mut i, tokens, current_idx + 1)?;
-                    target.list.push(Box::new(i));
+                    target.list.push(Statement::If(i));
                 }
                 KeywordType::While => {
                     let mut w = WhileStatement::new();
                     w.keyword = k.to_owned();
                     current_idx = parse_while_statement(ctx, &mut w, tokens, current_idx + 1)?;
-                    target.list.push(Box::new(w));
+                    target.list.push(Statement::While(w));
                 }
                 KeywordType::Do => {
                     let mut d = DoStatement::new();
                     d.keyword = k.to_owned();
                     current_idx = parse_do_statement(ctx, &mut d, tokens, current_idx + 1)?;
-                    target.list.push(Box::new(d));
+                    target.list.push(Statement::Do(d));
                 }
                 KeywordType::Return => {
                     let mut r = ReturnStatement::new();
                     r.keyword = k.to_owned();
                     current_idx = parse_return_statement(ctx, &mut r, tokens, current_idx + 1)?;
-                    target.list.push(Box::new(r));
+                    target.list.push(Statement::Return(r));
                 }
                 _other => {
                     return Err(Error::UnexpectedKeyword(_other));
