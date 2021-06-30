@@ -19,6 +19,7 @@ const IF_STATEMENT: &'static str = "ifStatement";
 const WHILE_STATEMENT: &'static str = "whileStatement";
 const EXPRESSION_LIST: &'static str = "expressionList";
 const EXPRESSION: &'static str = "expression";
+const CALL: &'static str = "call";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -749,6 +750,19 @@ impl Expression {
         output.push_str(&end_tag);
         Ok(())
     }
+
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        let term_len = self.terms.len();
+        assert!(term_len > 0);
+        assert_eq!(term_len - 1, self.ops.len());
+        // push via depth first approach
+        self.terms[0].compile(context, output)?;
+        for i in 1..term_len {
+            self.ops[i - 1].compile(output)?;
+            self.terms[i].compile(context, output)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -775,6 +789,10 @@ impl Term {
             Term::ExpresssionInParenthesis(e) => e.serialize(output, indent_level),
             Term::UnaryOp(u) => u.serialize(output, indent_level),
         }
+    }
+
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        Ok(())
     }
 }
 
@@ -967,6 +985,23 @@ struct Op {
 impl Op {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         self.symbol.serialize(output, indent_level)?;
+        Ok(())
+    }
+
+    fn compile(&self, output: &mut String) -> Result<(), Error> {
+        match self.symbol.value {
+            '+' => output.push_str(&format!("add{}", NEW_LINE)),
+            '-' => output.push_str(&format!("sub{}", NEW_LINE)),
+            '=' => output.push_str(&format!("eq{}", NEW_LINE)),
+            '>' => output.push_str(&format!("gt{}", NEW_LINE)),
+            '<' => output.push_str(&format!("lt{}", NEW_LINE)),
+            '&' => output.push_str(&format!("and{}", NEW_LINE)),
+            '|' => output.push_str(&format!("or{}", NEW_LINE)),
+            '~' => output.push_str(&format!("not{}", NEW_LINE)),
+            '*' => output.push_str(&format!("{} Math.multiply 2{}", CALL, NEW_LINE)),
+            '/' => output.push_str(&format!("{} Math.divide 2{}", CALL, NEW_LINE)),
+            _other => panic!("Unexpected symbol: {}", _other),
+        }
         Ok(())
     }
 }
@@ -1451,6 +1486,13 @@ impl ExpressionList {
         output.push_str(&end_tag);
         Ok(())
     }
+
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        for e in &self.list {
+            e.compile(context, output)?
+        }
+        Ok(())
+    }
 }
 
 fn parse_expression_list(
@@ -1516,8 +1558,10 @@ impl FunctionCall {
         Ok(())
     }
     fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        self.parameters.compile(context, output)?;
         let line = format!(
-            "call {} {}{}",
+            "{} {} {}{}",
+            CALL,
             self.name.value,
             self.parameters.list.len(),
             NEW_LINE
@@ -1557,8 +1601,15 @@ impl MethodCall {
     }
 
     fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        self.parameters.compile(context, output)?;
         let caller = format!("{}.{}", self.source_name.value, self.method_name.value);
-        let line = format!("call {} {}{}", caller, self.parameters.list.len(), NEW_LINE);
+        let line = format!(
+            "{} {} {}{}",
+            CALL,
+            caller,
+            self.parameters.list.len(),
+            NEW_LINE
+        );
         output.push_str(&line);
         Ok(())
     }
