@@ -1515,6 +1515,16 @@ impl FunctionCall {
         self.parameter_block.end.serialize(output, indent_level)?;
         Ok(())
     }
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        let line = format!(
+            "call {} {}{}",
+            self.name.value,
+            self.parameters.list.len(),
+            NEW_LINE
+        );
+        output.push_str(&line);
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -1545,6 +1555,13 @@ impl MethodCall {
         self.parameter_block.end.serialize(output, indent_level)?;
         Ok(())
     }
+
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        let caller = format!("{}.{}", self.source_name.value, self.method_name.value);
+        let line = format!("call {} {}{}", caller, self.parameters.list.len(), NEW_LINE);
+        output.push_str(&line);
+        Ok(())
+    }
 }
 
 /// We use enum to restrict the child of SubroutineCall to be either FunctionCall or MethodCall
@@ -1552,6 +1569,15 @@ impl MethodCall {
 enum CallType {
     Function(FunctionCall),
     Method(MethodCall),
+}
+
+impl CallType {
+    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+        match self {
+            CallType::Function(f) => f.compile(context, output),
+            CallType::Method(m) => m.compile(context, output),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1575,25 +1601,6 @@ impl SubroutineCall {
         }
         Ok(())
     }
-
-    /// Get name of caller for function or method
-    fn caller_name(&self) -> Result<String, Error> {
-        match &self.call {
-            CallType::Function(func) => Ok(func.name.value.clone()),
-            CallType::Method(method) => Ok(format!(
-                "{}.{}",
-                method.source_name.value, method.method_name.value
-            )),
-        }
-    }
-
-    /// Get number of parameters for function or method
-    fn paramter_num(&self) -> Result<usize, Error> {
-        match &self.call {
-            CallType::Function(func) => Ok(func.parameters.list.len()),
-            CallType::Method(method) => Ok(method.parameters.list.len()),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -1611,9 +1618,6 @@ impl DoStatement {
             end: Symbol::new(),
         }
     }
-}
-
-impl DoStatement {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = DO_STATEMENT;
         let indent = INDENT_STR.repeat(indent_level);
@@ -1629,10 +1633,7 @@ impl DoStatement {
     }
 
     fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
-        let caller_name = self.subroutine_call.caller_name()?;
-        let param_num = self.subroutine_call.paramter_num()?;
-        let line = format!("call {} {}{}", caller_name, param_num, NEW_LINE);
-        output.push_str(&line);
+        self.subroutine_call.call.compile(context, output)?;
         Ok(())
     }
 }
