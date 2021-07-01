@@ -20,6 +20,9 @@ const WHILE_STATEMENT: &'static str = "whileStatement";
 const EXPRESSION_LIST: &'static str = "expressionList";
 const EXPRESSION: &'static str = "expression";
 const CALL: &'static str = "call";
+const PUSH: &'static str = "push";
+const POP: &'static str = "pop";
+const CONSTANT: &'static str = "constant";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -755,11 +758,11 @@ impl Expression {
         let term_len = self.terms.len();
         assert!(term_len > 0);
         assert_eq!(term_len - 1, self.ops.len());
-        // push via depth first approach
+        // compile via postfix approach
         self.terms[0].compile(context, output)?;
         for i in 1..term_len {
-            self.ops[i - 1].compile(output)?;
             self.terms[i].compile(context, output)?;
+            self.ops[i - 1].compile(output)?;
         }
         Ok(())
     }
@@ -792,7 +795,21 @@ impl Term {
     }
 
     fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
-        Ok(())
+        match self {
+            Term::Integer(i) => i.compile(context, output),
+            Term::String(s) => s.compile(context, output),
+            Term::ExpresssionInParenthesis(e) => e.expression.compile(context, output),
+            _other => Err(Error::NotImplemented {
+                file: file!(),
+                line: line!(),
+                column: column!(),
+            }),
+            // Term::Keyword(k) => k.serialize(output, indent_level),
+            // Term::VarName(v) => v.serialize(output, indent_level),
+            // Term::ArrayVar(av) => av.serialize(output, indent_level),
+            // Term::Subroutine(sr) => sr.serialize(output, indent_level),
+            // Term::UnaryOp(u) => u.compile(output, indent_level),
+        }
     }
 }
 
@@ -868,6 +885,12 @@ impl IntegerTerm {
         output.push_str(&end_tag);
         Ok(())
     }
+
+    fn compile(&self, _context: &Context, output: &mut String) -> Result<(), Error> {
+        let line = format!("{} {} {}{}", PUSH, CONSTANT, self.integer.value, NEW_LINE);
+        output.push_str(&line);
+        Ok(())
+    }
 }
 
 impl StringTerm {
@@ -880,6 +903,10 @@ impl StringTerm {
         let next_level = indent_level + 1;
         self.string.serialize(output, next_level)?;
         output.push_str(&end_tag);
+        Ok(())
+    }
+
+    fn compile(&self, _context: &Context, output: &mut String) -> Result<(), Error> {
         Ok(())
     }
 }

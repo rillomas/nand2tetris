@@ -289,7 +289,7 @@ impl Identifier {
 
 #[derive(Debug, Clone)]
 pub struct IntegerConstant {
-    value: u16,
+    pub value: u16,
 }
 
 impl IntegerConstant {
@@ -312,7 +312,7 @@ impl IntegerConstant {
 
 #[derive(Debug, Clone)]
 pub struct StringConstant {
-    value: String,
+    pub value: String,
 }
 
 impl StringConstant {
