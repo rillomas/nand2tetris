@@ -39,7 +39,7 @@ fn test_parser(root: &PathBuf, dir: &str) {
         let mut golden_file_path = io.input_file.clone();
         let golden_name = format!("{}.xml", origin);
         golden_file_path.set_file_name(&golden_name);
-        let mut ctx = parser::Context::new();
+        let mut ctx = parser::ParseInfo::new();
         let class = parser::parse_file(&mut ctx, &mut io.input)
             .expect(format!("Parse failed at {}", io.input_file.display()).as_str());
 
@@ -63,7 +63,7 @@ fn test_compiler(root: &PathBuf, dir: &str) {
         // let mut output_file_path = io.input_file.clone();
         // let output_name = format!("{}.vm", origin);
         // output_file_path.set_file_name(&output_name);
-        let mut ctx = parser::Context::new();
+        let mut ctx = parser::ParseInfo::new();
         let class = parser::parse_file(&mut ctx, &mut io.input)
             .expect(format!("Parse failed at {}", io.input_file.display()).as_str());
 

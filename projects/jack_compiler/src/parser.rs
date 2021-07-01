@@ -163,18 +163,51 @@ impl MethodSymbolTable {
     }
 }
 
-pub struct Context {
-    class_table: ClassSymbolTable,
-    method_table: MethodSymbolTable,
+#[derive(Debug)]
+enum ReturnType {
+    Void,
+    Int,
+    Char,
+    Boolean,
+    Class(String),
 }
 
-impl Context {
-    pub fn new() -> Context {
-        Context {
-            class_table: ClassSymbolTable::new(),
-            method_table: MethodSymbolTable::new(),
+#[derive(Debug)]
+struct ReturnTypeTable {
+    table: HashMap<String, ReturnType>,
+}
+
+impl ReturnTypeTable {
+    fn new() -> ReturnTypeTable {
+        ReturnTypeTable {
+            table: HashMap::new(),
         }
     }
+}
+
+/// Information gathered while parsing source code
+pub struct ParseInfo {
+    class_table: ClassSymbolTable,
+    method_table: MethodSymbolTable,
+    return_type: ReturnTypeTable,
+}
+
+impl ParseInfo {
+    pub fn new() -> ParseInfo {
+        ParseInfo {
+            class_table: ClassSymbolTable::new(),
+            method_table: MethodSymbolTable::new(),
+            return_type: ReturnTypeTable::new(),
+        }
+    }
+}
+
+/// State information of current compile
+struct CompileState {
+    /// Name of current class,
+    class_name: String,
+    /// Name of current subroutine
+    subroutine_name: String,
 }
 
 pub struct Class {
@@ -225,11 +258,16 @@ impl Class {
     }
 
     /// Compile to VM text
-    pub fn compile(&self, context: &Context) -> Result<String, Error> {
+    pub fn compile(&self, info: &ParseInfo) -> Result<String, Error> {
+        println!("{:?}", info.return_type);
         let mut output = String::from("");
+        let mut state = CompileState {
+            class_name: self.name.value.clone(),
+            subroutine_name: String::from(""),
+        };
         // Iterate all subroutines
         for s in &self.subroutines {
-            s.compile(context, &mut output, &self.name.value)?;
+            s.compile(info, &mut output, &mut state)?;
         }
         Ok(output)
     }
@@ -328,23 +366,25 @@ impl SubroutineDec {
 
     pub fn compile(
         &self,
-        context: &Context,
+        info: &ParseInfo,
         output: &mut String,
-        class_name: &str,
+        state: &mut CompileState,
     ) -> Result<(), Error> {
         // Get name and number of variables
         let func_line = format!(
             "function {0}.{1} {2}{3}",
-            class_name,
+            state.class_name,
             self.name.value,
             self.body.variables.len(),
             NEW_LINE
         );
         output.push_str(&func_line);
+        // update current subroutine name
+        state.subroutine_name = self.name.value.clone();
         // set parameters
         // set variables
         for s in &self.body.statements.list {
-            s.compile(context, output)?;
+            s.compile(info, output, state)?;
         }
         Ok(())
     }
@@ -401,7 +441,7 @@ impl ParameterList {
 }
 
 fn parse_parameter_list(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut ParameterList,
     tokens: &TokenList,
     token_index: usize,
@@ -521,7 +561,7 @@ impl SubroutineBody {
 }
 
 fn parse_subroutine_body(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut SubroutineBody,
     tokens: &TokenList,
     token_index: usize,
@@ -655,7 +695,7 @@ impl VarDec {
 }
 
 fn parse_var_dec(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut VarDec,
     tokens: &TokenList,
     token_index: usize,
@@ -754,7 +794,7 @@ impl Expression {
         Ok(())
     }
 
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
         let term_len = self.terms.len();
         assert!(term_len > 0);
         assert_eq!(term_len - 1, self.ops.len());
@@ -794,7 +834,7 @@ impl Term {
         }
     }
 
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
         match self {
             Term::Integer(i) => i.compile(context, output),
             Term::String(s) => s.compile(context, output),
@@ -886,7 +926,7 @@ impl IntegerTerm {
         Ok(())
     }
 
-    fn compile(&self, _context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, _context: &ParseInfo, output: &mut String) -> Result<(), Error> {
         let line = format!("{} {} {}{}", PUSH, CONSTANT, self.integer.value, NEW_LINE);
         output.push_str(&line);
         Ok(())
@@ -906,7 +946,7 @@ impl StringTerm {
         Ok(())
     }
 
-    fn compile(&self, _context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, _context: &ParseInfo, output: &mut String) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -1034,7 +1074,7 @@ impl Op {
 }
 
 fn parse_term(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<(Term, usize), Error> {
@@ -1205,7 +1245,7 @@ fn parse_term(
 }
 
 fn parse_expression(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut Expression,
     tokens: &TokenList,
     token_index: usize,
@@ -1312,13 +1352,21 @@ impl Statement {
         }
     }
 
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
         match self {
-            Statement::Let(l) => l.compile(context, output),
-            Statement::If(i) => i.compile(context, output),
-            Statement::While(w) => w.compile(context, output),
-            Statement::Do(d) => d.compile(context, output),
-            Statement::Return(r) => r.compile(context, output),
+            Statement::Let(l) => l.compile(info, output),
+            Statement::If(i) => i.compile(info, output),
+            Statement::While(w) => w.compile(info, output),
+            Statement::Do(d) => d.compile(info, output),
+            Statement::Return(r) => {
+                let return_type = &info.return_type.table[&state.subroutine_name];
+                r.compile(info, output, return_type)
+            }
         }
     }
 }
@@ -1388,7 +1436,7 @@ impl LetStatement {
         Ok(())
     }
 
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
         Err(Error::NotImplemented {
             file: file!(),
             line: line!(),
@@ -1465,7 +1513,7 @@ impl IfStatement {
         Ok(())
     }
 
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
         Err(Error::NotImplemented {
             file: file!(),
             line: line!(),
@@ -1514,7 +1562,7 @@ impl ExpressionList {
         Ok(())
     }
 
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
         for e in &self.list {
             e.compile(context, output)?
         }
@@ -1523,7 +1571,7 @@ impl ExpressionList {
 }
 
 fn parse_expression_list(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut ExpressionList,
     tokens: &TokenList,
     token_index: usize,
@@ -1584,7 +1632,7 @@ impl FunctionCall {
         self.parameter_block.end.serialize(output, indent_level)?;
         Ok(())
     }
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
         self.parameters.compile(context, output)?;
         let line = format!(
             "{} {} {}{}",
@@ -1627,7 +1675,7 @@ impl MethodCall {
         Ok(())
     }
 
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
         self.parameters.compile(context, output)?;
         let caller = format!("{}.{}", self.source_name.value, self.method_name.value);
         let line = format!(
@@ -1650,7 +1698,7 @@ enum CallType {
 }
 
 impl CallType {
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
         match self {
             CallType::Function(f) => f.compile(context, output),
             CallType::Method(m) => m.compile(context, output),
@@ -1710,7 +1758,7 @@ impl DoStatement {
         Ok(())
     }
 
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
         self.subroutine_call.call.compile(context, output)?;
         Ok(())
     }
@@ -1774,7 +1822,26 @@ impl ReturnStatement {
         Ok(())
     }
 
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(
+        &self,
+        context: &ParseInfo,
+        output: &mut String,
+        return_type: &ReturnType,
+    ) -> Result<(), Error> {
+        // Set return value based on return type
+        match return_type {
+            &ReturnType::Void => {
+                // return 0 for void functions
+                output.push_str(&format!("{} {} 0{}", PUSH, CONSTANT, NEW_LINE));
+            }
+            _other => {
+                return Err(Error::NotImplemented {
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                })
+            }
+        }
         output.push_str(&format!("return{}", NEW_LINE));
         Ok(())
     }
@@ -1818,7 +1885,7 @@ impl WhileStatement {
         Ok(())
     }
 
-    fn compile(&self, context: &Context, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
         Err(Error::NotImplemented {
             file: file!(),
             line: line!(),
@@ -1828,7 +1895,7 @@ impl WhileStatement {
 }
 
 fn parse_let_statement(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut LetStatement,
     tokens: &TokenList,
     token_index: usize,
@@ -1885,7 +1952,7 @@ fn parse_let_statement(
 }
 
 fn parse_else_block(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut ElseBlock,
     tokens: &TokenList,
     token_index: usize,
@@ -1918,7 +1985,7 @@ fn parse_else_block(
 }
 
 fn parse_if_statement(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut IfStatement,
     tokens: &TokenList,
     token_index: usize,
@@ -1993,7 +2060,7 @@ fn parse_if_statement(
 }
 
 fn parse_subroutine_call(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut SubroutineCall,
     tokens: &TokenList,
     token_index: usize,
@@ -2072,7 +2139,7 @@ fn parse_subroutine_call(
 }
 
 fn parse_do_statement(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut DoStatement,
     tokens: &TokenList,
     token_index: usize,
@@ -2093,7 +2160,7 @@ fn parse_do_statement(
 }
 
 fn parse_return_statement(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut ReturnStatement,
     tokens: &TokenList,
     token_index: usize,
@@ -2151,7 +2218,7 @@ fn parse_return_statement(
 }
 
 fn parse_while_statement(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut WhileStatement,
     tokens: &TokenList,
     token_index: usize,
@@ -2208,7 +2275,7 @@ fn parse_while_statement(
 }
 
 fn parse_statements(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut StatementList,
     tokens: &TokenList,
     token_index: usize,
@@ -2284,14 +2351,37 @@ fn parse_statements(
     Ok(current_idx)
 }
 
+fn keyword_to_return_type(keyword: KeywordType) -> ReturnType {
+    match keyword {
+        KeywordType::Void => ReturnType::Void,
+        KeywordType::Boolean => ReturnType::Boolean,
+        KeywordType::Int => ReturnType::Int,
+        KeywordType::Char => ReturnType::Char,
+        _other => panic!("Unexpected keyword type specified: {:?}", _other),
+    }
+}
+
+fn token_to_return_type(t: &Token) -> ReturnType {
+    match t {
+        Token::Keyword(word) => match word.keyword() {
+            KeywordType::Int | KeywordType::Char | KeywordType::Boolean | KeywordType::Void => {
+                return keyword_to_return_type(word.keyword());
+            }
+            _other => panic!("Unexpected keyword: {:?}", _other),
+        },
+        Token::Identifier(id) => return ReturnType::Class(id.value.clone()),
+        _other => panic!("Unexpected token: {:?}", _other),
+    };
+}
+
 fn parse_subroutine_dec(
-    ctx: &mut Context,
+    info: &mut ParseInfo,
     target: &mut SubroutineDec,
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    ctx.method_table.clear(); // clear method symbol table for every new subroutine
+    info.method_table.clear(); // clear method symbol table for every new subroutine
     let token = &tokens.list[current_idx];
     let rt = match token {
         Token::Keyword(word) => match word.keyword() {
@@ -2300,7 +2390,7 @@ fn parse_subroutine_dec(
             }
             _other => return Err(Error::UnexpectedKeyword(_other)),
         },
-        Token::Identifier(_) => token,
+        Token::Identifier(id) => token,
         _other => {
             return Err(Error::UnexpectedToken {
                 token: _other.to_owned(),
@@ -2314,21 +2404,26 @@ fn parse_subroutine_dec(
     target.return_type = rt.to_owned();
     current_idx += 1;
     target.name = tokens.list[current_idx].identifier().unwrap().to_owned();
-    current_idx = parse_parameter_list(ctx, &mut target.param_list, tokens, current_idx + 1)?;
+    // Update return type
+    // TODO: We should add the return type with the full Class.function name
+    info.return_type
+        .table
+        .insert(target.name.string(), token_to_return_type(rt));
+    current_idx = parse_parameter_list(info, &mut target.param_list, tokens, current_idx + 1)?;
     // add all parameters to symbol table
     for i in 0..target.param_list.name.len() {
-        ctx.method_table.add_entry(
+        info.method_table.add_entry(
             target.param_list.name[i].string(),
             SymbolCategory::Argument,
             target.param_list.param_type[i].string(),
         );
     }
-    current_idx = parse_subroutine_body(ctx, &mut target.body, tokens, current_idx)?;
+    current_idx = parse_subroutine_body(info, &mut target.body, tokens, current_idx)?;
     Ok(current_idx)
 }
 
 fn parse_type<'a>(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     token: &'a Token,
     token_index: usize,
 ) -> Result<&'a Token, Error> {
@@ -2365,7 +2460,7 @@ fn keyword_to_category(k: KeywordType) -> SymbolCategory {
 }
 
 fn parse_class_var_dec(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     target: &mut ClassVarDec,
     tokens: &TokenList,
     token_index: usize,
@@ -2421,7 +2516,7 @@ fn parse_class_var_dec(
 
 /// Check and ingest all tokens related to current class
 fn parse_class(
-    ctx: &mut Context,
+    ctx: &mut ParseInfo,
     class: &mut Class,
     tokens: &TokenList,
     token_index: usize,
@@ -2495,7 +2590,7 @@ fn parse_class(
 
 /// Parse specified file and generate an internal tree representation
 pub fn parse_file(
-    context: &mut Context,
+    context: &mut ParseInfo,
     file_reader: &mut std::io::BufReader<std::fs::File>,
 ) -> Result<Box<Class>, Error> {
     let tokens = generate_token_list(file_reader);
