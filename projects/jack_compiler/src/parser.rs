@@ -154,16 +154,9 @@ impl MethodSymbolTable {
             _other => panic!("Unexpected category: {:?}", _other),
         };
     }
-
-    /// Clear all entries
-    fn clear(&mut self) {
-        self.table.clear();
-        self.argument_count = 0;
-        self.var_count = 0;
-    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum ReturnType {
     Void,
     Int,
@@ -185,19 +178,74 @@ impl ReturnTypeTable {
     }
 }
 
+/// Fill information of OS functions
+fn init_os_functions(table: &mut ReturnTypeTable) {
+    let str = ReturnType::Class(String::from("String"));
+    let arr = ReturnType::Class(String::from("Array"));
+    let funcs = [
+        ("Math.multiply", ReturnType::Int),
+        ("Math.divide", ReturnType::Int),
+        ("Math.min", ReturnType::Int),
+        ("Math.max", ReturnType::Int),
+        ("Math.sqrt", ReturnType::Int),
+        ("String.new", str.clone()),
+        ("String.dispose", ReturnType::Int),
+        ("String.length", ReturnType::Int),
+        ("String.charAt", ReturnType::Char),
+        ("String.setCharAt", ReturnType::Void),
+        ("String.appendChar", str.clone()),
+        ("String.eraseLastChar", ReturnType::Void),
+        ("String.intValue", ReturnType::Int),
+        ("String.setInt", ReturnType::Void),
+        ("String.backSpace", ReturnType::Char),
+        ("String.doubleQuote", ReturnType::Char),
+        ("String.newLine", ReturnType::Char),
+        ("Array.new", arr.clone()),
+        ("Array.dispose", ReturnType::Void),
+        ("Output.moveCursor", ReturnType::Void),
+        ("Output.printChar", ReturnType::Void),
+        ("Output.printString", ReturnType::Void),
+        ("Output.printInt", ReturnType::Void),
+        ("Output.println", ReturnType::Void),
+        ("Output.backSpace", ReturnType::Void),
+        ("Screen.clearScreen", ReturnType::Void),
+        ("Screen.setColor", ReturnType::Void),
+        ("Screen.drawPixel", ReturnType::Void),
+        ("Screen.drawLine", ReturnType::Void),
+        ("Screen.drawRectangle", ReturnType::Void),
+        ("Screen.drawCircle", ReturnType::Void),
+        ("Keyboard.keyPressed", ReturnType::Char),
+        ("Keyboard.readChar", ReturnType::Char),
+        ("Keyboard.readLine", str.clone()),
+        ("Keyboard.readInt", ReturnType::Int),
+        ("Memory.peek", ReturnType::Int),
+        ("Memory.poke", ReturnType::Void),
+        ("Memory.alloc", arr.clone()),
+        ("Memory.dealloc", ReturnType::Void),
+        ("Sys.halt", ReturnType::Void),
+        ("Sys.error", ReturnType::Void),
+        ("Sys.wait", ReturnType::Void),
+    ];
+    for (f, r) in funcs {
+        table.table.insert(f.to_string(), r);
+    }
+}
+
 /// Information gathered while parsing source code
 pub struct ParseInfo {
-    class_table: ClassSymbolTable,
-    method_table: MethodSymbolTable,
+    class_symbol_table: ClassSymbolTable,
+    symbol_table_per_method: HashMap<String, MethodSymbolTable>,
     return_type: ReturnTypeTable,
 }
 
 impl ParseInfo {
     pub fn new() -> ParseInfo {
+        let mut rt = ReturnTypeTable::new();
+        init_os_functions(&mut rt);
         ParseInfo {
-            class_table: ClassSymbolTable::new(),
-            method_table: MethodSymbolTable::new(),
-            return_type: ReturnTypeTable::new(),
+            class_symbol_table: ClassSymbolTable::new(),
+            symbol_table_per_method: HashMap::new(),
+            return_type: rt,
         }
     }
 }
@@ -259,7 +307,6 @@ impl Class {
 
     /// Compile to VM text
     pub fn compile(&self, info: &ParseInfo) -> Result<String, Error> {
-        println!("{:?}", info.return_type);
         let mut output = String::from("");
         let mut state = CompileState {
             class_name: self.name.value.clone(),
@@ -562,6 +609,7 @@ impl SubroutineBody {
 
 fn parse_subroutine_body(
     ctx: &mut ParseInfo,
+    table: &mut MethodSymbolTable,
     target: &mut SubroutineBody,
     tokens: &TokenList,
     token_index: usize,
@@ -610,11 +658,7 @@ fn parse_subroutine_body(
                         current_idx = parse_var_dec(ctx, &mut vd, tokens, current_idx + 1)?;
                         // Add all declared vars to symbol table
                         for v in &vd.names {
-                            ctx.method_table.add_entry(
-                                v.string(),
-                                SymbolCategory::Var,
-                                vd.var_type.string(),
-                            );
+                            table.add_entry(v.string(), SymbolCategory::Var, vd.var_type.string());
                         }
                         target.variables.push(vd);
                     }
@@ -1364,7 +1408,8 @@ impl Statement {
             Statement::While(w) => w.compile(info, output),
             Statement::Do(d) => d.compile(info, output),
             Statement::Return(r) => {
-                let return_type = &info.return_type.table[&state.subroutine_name];
+                let full_name = format!("{}.{}", state.class_name, state.subroutine_name);
+                let return_type = &info.return_type.table[&full_name];
                 r.compile(info, output, return_type)
             }
         }
@@ -2379,9 +2424,10 @@ fn parse_subroutine_dec(
     target: &mut SubroutineDec,
     tokens: &TokenList,
     token_index: usize,
+    class_name: &str,
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
-    info.method_table.clear(); // clear method symbol table for every new subroutine
+    let mut symbol_table = MethodSymbolTable::new(); // Create new symbol table for every new subroutine
     let token = &tokens.list[current_idx];
     let rt = match token {
         Token::Keyword(word) => match word.keyword() {
@@ -2390,7 +2436,7 @@ fn parse_subroutine_dec(
             }
             _other => return Err(Error::UnexpectedKeyword(_other)),
         },
-        Token::Identifier(id) => token,
+        Token::Identifier(_) => token,
         _other => {
             return Err(Error::UnexpectedToken {
                 token: _other.to_owned(),
@@ -2405,20 +2451,28 @@ fn parse_subroutine_dec(
     current_idx += 1;
     target.name = tokens.list[current_idx].identifier().unwrap().to_owned();
     // Update return type
-    // TODO: We should add the return type with the full Class.function name
+    let full_name = format!("{}.{}", class_name, target.name.string());
     info.return_type
         .table
-        .insert(target.name.string(), token_to_return_type(rt));
+        .insert(full_name.clone(), token_to_return_type(rt));
     current_idx = parse_parameter_list(info, &mut target.param_list, tokens, current_idx + 1)?;
     // add all parameters to symbol table
     for i in 0..target.param_list.name.len() {
-        info.method_table.add_entry(
+        symbol_table.add_entry(
             target.param_list.name[i].string(),
             SymbolCategory::Argument,
             target.param_list.param_type[i].string(),
         );
     }
-    current_idx = parse_subroutine_body(info, &mut target.body, tokens, current_idx)?;
+    current_idx = parse_subroutine_body(
+        info,
+        &mut symbol_table,
+        &mut target.body,
+        tokens,
+        current_idx,
+    )?;
+    // Add finished symbol table
+    info.symbol_table_per_method.insert(full_name, symbol_table);
     Ok(current_idx)
 }
 
@@ -2493,7 +2547,7 @@ fn parse_class_var_dec(
             }
             Token::Identifier(i) => {
                 target.var_names.push(i.to_owned());
-                ctx.class_table.add_entry(
+                ctx.class_symbol_table.add_entry(
                     i.string(),
                     keyword_to_category(target.prefix.keyword()),
                     target.var_type.string(),
@@ -2566,7 +2620,13 @@ fn parse_class(
                     }
                     KeywordType::Constructor | KeywordType::Function | KeywordType::Method => {
                         let mut sd = SubroutineDec::new(keyword.to_owned());
-                        current_idx = parse_subroutine_dec(ctx, &mut sd, tokens, current_idx + 1)?;
+                        current_idx = parse_subroutine_dec(
+                            ctx,
+                            &mut sd,
+                            tokens,
+                            current_idx + 1,
+                            &class.name.value,
+                        )?;
                         class.subroutines.push(sd);
                     }
                     _other => {
