@@ -1720,8 +1720,8 @@ impl MethodCall {
         Ok(())
     }
 
-    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        self.parameters.compile(context, output)?;
+    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
+        self.parameters.compile(info, output)?;
         let caller = format!("{}.{}", self.source_name.value, self.method_name.value);
         let line = format!(
             "{} {} {}{}",
@@ -1731,6 +1731,13 @@ impl MethodCall {
             NEW_LINE
         );
         output.push_str(&line);
+        // if the method call's return type is void
+        // we add an instruction to drop the implicit returned 0
+        let rt = info.return_type.table.get(&caller).unwrap();
+        if matches!(rt, ReturnType::Void) {
+            output.push_str(&format!("pop temp 0{}", NEW_LINE));
+        }
+
         Ok(())
     }
 }
