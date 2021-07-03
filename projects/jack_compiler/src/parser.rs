@@ -53,12 +53,6 @@ pub enum Error {
         token_length: usize,
         current_index: usize,
     },
-    #[error("{file} {line}:{column} This path is not implemented yet")]
-    NotImplemented {
-        file: &'static str,
-        line: u32,
-        column: u32,
-    },
     #[error("Unexpected State: {0}")]
     UnexpectedState(String),
 }
@@ -922,18 +916,14 @@ impl Term {
             Term::String(s) => s.compile(info, output),
             Term::ExpresssionInParenthesis(e) => e.expression.compile(info, output),
             Term::UnaryOp(u) => u.compile(info, output),
+            Term::Subroutine(sr) => sr.compile(info, output),
             _other => {
                 println!("{}", output);
-                Err(Error::NotImplemented {
-                    file: file!(),
-                    line: line!(),
-                    column: column!(),
-                })
+                panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
             }
             // Term::Keyword(k) => k.serialize(output, indent_level),
             // Term::VarName(v) => v.serialize(output, indent_level),
             // Term::ArrayVar(av) => av.serialize(output, indent_level),
-            // Term::Subroutine(sr) => sr.serialize(output, indent_level),
         }
     }
 }
@@ -1137,6 +1127,11 @@ impl SubroutineCallTerm {
         output.push_str(&end_tag);
         Ok(())
     }
+
+    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
+        self.call.call.compile(info, output)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -1233,11 +1228,7 @@ fn parse_term(
                         }
                         '(' => {
                             // parse subroutineCall (functionCall)
-                            return Err(Error::NotImplemented {
-                                file: file!(),
-                                line: line!(),
-                                column: column!(),
-                            });
+                            panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
                         }
                         '.' => {
                             // parse subroutineCall (methodCall)
@@ -1540,11 +1531,7 @@ impl LetStatement {
         if self.array.is_some() {
             println!("{}", output);
             // compile as array expression
-            Err(Error::NotImplemented {
-                file: file!(),
-                line: line!(),
-                column: column!(),
-            })
+            panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
         } else {
             // compile as normal var
             self.right_hand_side.compile(info, output)?;
@@ -1557,11 +1544,9 @@ impl LetStatement {
                     .get(&self.var_name.value)
                     .unwrap();
                 match &entry.symbol_type {
-                    SymbolType::Class(_c) => Err(Error::NotImplemented {
-                        file: file!(),
-                        line: line!(),
-                        column: column!(),
-                    }),
+                    SymbolType::Class(_c) => {
+                        panic!("{} {}:{} NotImplemented", file!(), line!(), column!())
+                    }
                     _other => {
                         // all other type can be assigned in a single line
                         output.push_str(&format!("{} local {}{}", POP, entry.index, NEW_LINE));
@@ -1570,11 +1555,7 @@ impl LetStatement {
                 }
             } else {
                 // look for class symbol table
-                Err(Error::NotImplemented {
-                    file: file!(),
-                    line: line!(),
-                    column: column!(),
-                })
+                panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
             }
         }
     }
@@ -1649,11 +1630,7 @@ impl IfStatement {
     }
 
     fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        Err(Error::NotImplemented {
-            file: file!(),
-            line: line!(),
-            column: column!(),
-        })
+        panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
     }
 }
 
@@ -1977,11 +1954,7 @@ impl ReturnStatement {
                 output.push_str(&format!("{} {} 0{}", PUSH, CONSTANT, NEW_LINE));
             }
             _other => {
-                return Err(Error::NotImplemented {
-                    file: file!(),
-                    line: line!(),
-                    column: column!(),
-                })
+                panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
             }
         }
         output.push_str(&format!("return{}", NEW_LINE));
@@ -2028,11 +2001,7 @@ impl WhileStatement {
     }
 
     fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        Err(Error::NotImplemented {
-            file: file!(),
-            line: line!(),
-            column: column!(),
-        })
+        panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
     }
 }
 
