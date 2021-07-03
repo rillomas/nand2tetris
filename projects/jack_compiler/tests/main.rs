@@ -54,7 +54,7 @@ fn test_parser(root: &PathBuf, dir: &str) {
     }
 }
 
-fn test_compiler(root: &PathBuf, dir: &str) {
+fn test_compiler(root: &PathBuf, dir: &str, print_xml: bool) {
     let target = root.join(TEST_DIR).join(DATA_DIR).join(dir);
     // Convert jack to parsed xml for each directory
     let io_list = generate_ioset(&target).unwrap();
@@ -66,6 +66,12 @@ fn test_compiler(root: &PathBuf, dir: &str) {
         let mut ctx = parser::ParseInfo::new();
         let class = parser::parse_file(&mut ctx, &mut io.input)
             .expect(format!("Parse failed at {}", io.input_file.display()).as_str());
+
+        if print_xml {
+            let mut xml = String::from("");
+            class.serialize(&mut xml, 0).unwrap();
+            println!("{}", xml);
+        }
 
         // Compile to vm text
         let vm = class
@@ -121,11 +127,11 @@ fn test_parser_square_xml() {
 #[test]
 fn test_compiler_seven() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    test_compiler(&root, "Seven");
+    test_compiler(&root, "Seven", false);
 }
 
 #[test]
 fn test_compiler_convert_to_bin() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    test_compiler(&root, "ConvertToBin");
+    test_compiler(&root, "ConvertToBin", false);
 }

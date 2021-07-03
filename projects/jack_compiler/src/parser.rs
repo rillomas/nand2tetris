@@ -450,7 +450,7 @@ impl SubroutineDec {
             "function {0}.{1} {2}{3}",
             state.class_name,
             self.name.value,
-            self.body.variables.len(),
+            self.body.variable_sum(),
             NEW_LINE
         );
         output.push_str(&func_line);
@@ -632,6 +632,11 @@ impl SubroutineBody {
         self.block.end.serialize(output, next_level)?;
         output.push_str(&end_tag);
         Ok(())
+    }
+
+    /// Get number of variables delcared within subroutine
+    fn variable_sum(&self) -> usize {
+        self.variables.iter().fold(0, |sum, v| sum + v.names.len())
     }
 }
 
@@ -2787,7 +2792,7 @@ fn parse_class(
 pub fn parse_file(
     info: &mut ParseInfo,
     file_reader: &mut std::io::BufReader<std::fs::File>,
-) -> Result<Box<Class>, Error> {
+) -> Result<Class, Error> {
     let tokens = generate_token_list(file_reader);
     let mut current_index = 0;
     let keyword = tokens.list[current_index].keyword().unwrap();
@@ -2804,5 +2809,5 @@ pub fn parse_file(
             current_index: current_index,
         });
     }
-    Ok(Box::new(class))
+    Ok(class)
 }
