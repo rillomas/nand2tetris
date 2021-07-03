@@ -870,14 +870,19 @@ impl Expression {
         Ok(())
     }
 
-    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
         let term_len = self.terms.len();
         assert!(term_len > 0);
         assert_eq!(term_len - 1, self.ops.len());
         // compile via postfix approach
-        self.terms[0].compile(info, output)?;
+        self.terms[0].compile(info, output, state)?;
         for i in 1..term_len {
-            self.terms[i].compile(info, output)?;
+            self.terms[i].compile(info, output, state)?;
             self.ops[i - 1].compile(output)?;
         }
         Ok(())
@@ -910,19 +915,24 @@ impl Term {
         }
     }
 
-    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
         match self {
             Term::Integer(i) => i.compile(info, output),
             Term::String(s) => s.compile(info, output),
-            Term::ExpresssionInParenthesis(e) => e.expression.compile(info, output),
-            Term::UnaryOp(u) => u.compile(info, output),
-            Term::Subroutine(sr) => sr.compile(info, output),
+            Term::ExpresssionInParenthesis(e) => e.expression.compile(info, output, state),
+            Term::UnaryOp(u) => u.compile(info, output, state),
+            Term::Subroutine(sr) => sr.compile(info, output, state),
+            Term::VarName(v) => v.compile(info, output, state),
             _other => {
                 println!("{}", output);
                 panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
             }
             // Term::Keyword(k) => k.serialize(output, indent_level),
-            // Term::VarName(v) => v.serialize(output, indent_level),
             // Term::ArrayVar(av) => av.serialize(output, indent_level),
         }
     }
@@ -1038,6 +1048,30 @@ impl VarNameTerm {
         output.push_str(&end_tag);
         Ok(())
     }
+
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
+        let method_table = info.symbol_table_per_method.get(&state.full_method_name());
+        if method_table.is_some() {
+            let entry = method_table.unwrap().table.get(&self.name.value).unwrap();
+            match &entry.symbol_type {
+                SymbolType::Class(_c) => {
+                    panic!("{} {}:{} NotImplemented", file!(), line!(), column!())
+                }
+                _other => {
+                    output.push_str(&format!("{} local {}{}", PUSH, entry.index, NEW_LINE));
+                    Ok(())
+                }
+            }
+        } else {
+            // look for class symbol table
+            panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
+        }
+    }
 }
 
 impl KeywordTerm {
@@ -1099,8 +1133,13 @@ impl UnaryOpTerm {
         Ok(())
     }
 
-    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        self.term.compile(info, output)?;
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
+        self.term.compile(info, output, state)?;
         match self.op.value {
             '-' => output.push_str(&format!("neg{}", NEW_LINE)),
             '~' => output.push_str(&format!("not{}", NEW_LINE)),
@@ -1128,8 +1167,13 @@ impl SubroutineCallTerm {
         Ok(())
     }
 
-    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        self.call.call.compile(info, output)?;
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
+        self.call.call.compile(info, output, state)?;
         Ok(())
     }
 }
@@ -1448,7 +1492,7 @@ impl Statement {
             Statement::Let(l) => l.compile(info, output, state),
             Statement::If(i) => i.compile(info, output),
             Statement::While(w) => w.compile(info, output),
-            Statement::Do(d) => d.compile(info, output),
+            Statement::Do(d) => d.compile(info, output, state),
             Statement::Return(r) => {
                 let return_type = &info.return_type.table[&state.full_method_name()];
                 r.compile(info, output, return_type)
@@ -1534,7 +1578,7 @@ impl LetStatement {
             panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
         } else {
             // compile as normal var
-            self.right_hand_side.compile(info, output)?;
+            self.right_hand_side.compile(info, output, state)?;
             // We should have the right hand value at top of stack so we assign that to var
             let method_table = info.symbol_table_per_method.get(&state.full_method_name());
             if method_table.is_some() {
@@ -1674,9 +1718,14 @@ impl ExpressionList {
         Ok(())
     }
 
-    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
         for e in &self.list {
-            e.compile(info, output)?
+            e.compile(info, output, state)?
         }
         Ok(())
     }
@@ -1744,8 +1793,13 @@ impl FunctionCall {
         self.parameter_block.end.serialize(output, indent_level)?;
         Ok(())
     }
-    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        self.parameters.compile(info, output)?;
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
+        self.parameters.compile(info, output, state)?;
         let line = format!(
             "{} {} {}{}",
             CALL,
@@ -1787,8 +1841,13 @@ impl MethodCall {
         Ok(())
     }
 
-    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        self.parameters.compile(info, output)?;
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
+        self.parameters.compile(info, output, state)?;
         let caller = format!("{}.{}", self.source_name.value, self.method_name.value);
         let line = format!(
             "{} {} {}{}",
@@ -1817,10 +1876,15 @@ enum CallType {
 }
 
 impl CallType {
-    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
         match self {
-            CallType::Function(f) => f.compile(info, output),
-            CallType::Method(m) => m.compile(info, output),
+            CallType::Function(f) => f.compile(info, output, state),
+            CallType::Method(m) => m.compile(info, output, state),
         }
     }
 }
@@ -1877,8 +1941,13 @@ impl DoStatement {
         Ok(())
     }
 
-    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        self.subroutine_call.call.compile(info, output)?;
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
+        self.subroutine_call.call.compile(info, output, state)?;
         Ok(())
     }
 }
