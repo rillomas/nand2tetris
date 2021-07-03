@@ -123,3 +123,9 @@ fn test_compiler_seven() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     test_compiler(&root, "Seven");
 }
+
+#[test]
+fn test_compiler_convert_to_bin() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    test_compiler(&root, "ConvertToBin");
+}

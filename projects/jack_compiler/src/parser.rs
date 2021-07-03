@@ -71,15 +71,42 @@ enum SymbolCategory {
     Field,
 }
 
+fn var_type_to_symbol_type(var_type: &Token) -> SymbolType {
+    match var_type {
+        Token::Identifier(id) => SymbolType::Class(id.value.clone()),
+        Token::Keyword(k) => match k.keyword() {
+            KeywordType::Boolean => SymbolType::Boolean,
+            KeywordType::Int => SymbolType::Int,
+            KeywordType::Char => SymbolType::Char,
+            _other => {
+                panic!("Unexpected keyword type: {:?}", _other);
+            }
+        },
+        _other => {
+            panic!("Unexpected token type: {:?}", _other);
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum SymbolType {
+    Int,
+    Char,
+    Boolean,
+    Class(String),
+}
+
 #[derive(Debug)]
 struct SymbolTableEntry {
     category: SymbolCategory,
-    symbol_type: String,
+    /// Type name for this symbol
+    symbol_type: SymbolType,
+    /// Index of which this symbol showed up
     index: usize,
 }
 
 impl SymbolTableEntry {
-    fn new(category: SymbolCategory, symbol_type: String, index: usize) -> SymbolTableEntry {
+    fn new(category: SymbolCategory, symbol_type: SymbolType, index: usize) -> SymbolTableEntry {
         SymbolTableEntry {
             category: category,
             symbol_type: symbol_type,
@@ -105,7 +132,7 @@ impl ClassSymbolTable {
     }
 
     /// Add an entry to the symbol table and count up symbol index
-    fn add_entry(&mut self, name: String, category: SymbolCategory, symbol_type: String) {
+    fn add_entry(&mut self, name: String, category: SymbolCategory, symbol_type: SymbolType) {
         match category {
             SymbolCategory::Static => {
                 let entry = SymbolTableEntry::new(category, symbol_type, self.static_count);
@@ -139,7 +166,7 @@ impl MethodSymbolTable {
     }
 
     /// Add an entry to the symbol table and count up symbol index
-    fn add_entry(&mut self, name: String, category: SymbolCategory, symbol_type: String) {
+    fn add_entry(&mut self, name: String, category: SymbolCategory, symbol_type: SymbolType) {
         match category {
             SymbolCategory::Argument => {
                 let entry = SymbolTableEntry::new(category, symbol_type, self.argument_count);
@@ -256,6 +283,13 @@ struct CompileState {
     class_name: String,
     /// Name of current subroutine
     subroutine_name: String,
+}
+
+impl CompileState {
+    /// Get full method name with ClassName.SubroutineName
+    fn full_method_name(&self) -> String {
+        format!("{}.{}", self.class_name, self.subroutine_name)
+    }
 }
 
 pub struct Class {
@@ -658,7 +692,11 @@ fn parse_subroutine_body(
                         current_idx = parse_var_dec(ctx, &mut vd, tokens, current_idx + 1)?;
                         // Add all declared vars to symbol table
                         for v in &vd.names {
-                            table.add_entry(v.string(), SymbolCategory::Var, vd.var_type.string());
+                            table.add_entry(
+                                v.string(),
+                                SymbolCategory::Var,
+                                var_type_to_symbol_type(&vd.var_type),
+                            );
                         }
                         target.variables.push(vd);
                     }
@@ -838,14 +876,14 @@ impl Expression {
         Ok(())
     }
 
-    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
         let term_len = self.terms.len();
         assert!(term_len > 0);
         assert_eq!(term_len - 1, self.ops.len());
         // compile via postfix approach
-        self.terms[0].compile(context, output)?;
+        self.terms[0].compile(info, output)?;
         for i in 1..term_len {
-            self.terms[i].compile(context, output)?;
+            self.terms[i].compile(info, output)?;
             self.ops[i - 1].compile(output)?;
         }
         Ok(())
@@ -878,21 +916,24 @@ impl Term {
         }
     }
 
-    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
         match self {
-            Term::Integer(i) => i.compile(context, output),
-            Term::String(s) => s.compile(context, output),
-            Term::ExpresssionInParenthesis(e) => e.expression.compile(context, output),
-            _other => Err(Error::NotImplemented {
-                file: file!(),
-                line: line!(),
-                column: column!(),
-            }),
+            Term::Integer(i) => i.compile(info, output),
+            Term::String(s) => s.compile(info, output),
+            Term::ExpresssionInParenthesis(e) => e.expression.compile(info, output),
+            Term::UnaryOp(u) => u.compile(info, output),
+            _other => {
+                println!("{}", output);
+                Err(Error::NotImplemented {
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                })
+            }
             // Term::Keyword(k) => k.serialize(output, indent_level),
             // Term::VarName(v) => v.serialize(output, indent_level),
             // Term::ArrayVar(av) => av.serialize(output, indent_level),
             // Term::Subroutine(sr) => sr.serialize(output, indent_level),
-            // Term::UnaryOp(u) => u.compile(output, indent_level),
         }
     }
 }
@@ -1065,6 +1106,16 @@ impl UnaryOpTerm {
         self.op.serialize(output, next_level)?;
         self.term.serialize(output, next_level)?;
         output.push_str(&end_tag);
+        Ok(())
+    }
+
+    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
+        self.term.compile(info, output)?;
+        match self.op.value {
+            '-' => output.push_str(&format!("neg{}", NEW_LINE)),
+            '~' => output.push_str(&format!("not{}", NEW_LINE)),
+            _other => panic!("Unexpected symbol: {}", _other),
+        }
         Ok(())
     }
 }
@@ -1403,13 +1454,12 @@ impl Statement {
         state: &CompileState,
     ) -> Result<(), Error> {
         match self {
-            Statement::Let(l) => l.compile(info, output),
+            Statement::Let(l) => l.compile(info, output, state),
             Statement::If(i) => i.compile(info, output),
             Statement::While(w) => w.compile(info, output),
             Statement::Do(d) => d.compile(info, output),
             Statement::Return(r) => {
-                let full_name = format!("{}.{}", state.class_name, state.subroutine_name);
-                let return_type = &info.return_type.table[&full_name];
+                let return_type = &info.return_type.table[&state.full_method_name()];
                 r.compile(info, output, return_type)
             }
         }
@@ -1481,12 +1531,52 @@ impl LetStatement {
         Ok(())
     }
 
-    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        Err(Error::NotImplemented {
-            file: file!(),
-            line: line!(),
-            column: column!(),
-        })
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
+        if self.array.is_some() {
+            println!("{}", output);
+            // compile as array expression
+            Err(Error::NotImplemented {
+                file: file!(),
+                line: line!(),
+                column: column!(),
+            })
+        } else {
+            // compile as normal var
+            self.right_hand_side.compile(info, output)?;
+            // We should have the right hand value at top of stack so we assign that to var
+            let method_table = info.symbol_table_per_method.get(&state.full_method_name());
+            if method_table.is_some() {
+                let entry = method_table
+                    .unwrap()
+                    .table
+                    .get(&self.var_name.value)
+                    .unwrap();
+                match &entry.symbol_type {
+                    SymbolType::Class(_c) => Err(Error::NotImplemented {
+                        file: file!(),
+                        line: line!(),
+                        column: column!(),
+                    }),
+                    _other => {
+                        // all other type can be assigned in a single line
+                        output.push_str(&format!("{} local {}{}", POP, entry.index, NEW_LINE));
+                        Ok(())
+                    }
+                }
+            } else {
+                // look for class symbol table
+                Err(Error::NotImplemented {
+                    file: file!(),
+                    line: line!(),
+                    column: column!(),
+                })
+            }
+        }
     }
 }
 
@@ -1558,7 +1648,7 @@ impl IfStatement {
         Ok(())
     }
 
-    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
         Err(Error::NotImplemented {
             file: file!(),
             line: line!(),
@@ -1607,9 +1697,9 @@ impl ExpressionList {
         Ok(())
     }
 
-    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
         for e in &self.list {
-            e.compile(context, output)?
+            e.compile(info, output)?
         }
         Ok(())
     }
@@ -1677,8 +1767,8 @@ impl FunctionCall {
         self.parameter_block.end.serialize(output, indent_level)?;
         Ok(())
     }
-    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        self.parameters.compile(context, output)?;
+    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
+        self.parameters.compile(info, output)?;
         let line = format!(
             "{} {} {}{}",
             CALL,
@@ -1750,10 +1840,10 @@ enum CallType {
 }
 
 impl CallType {
-    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
         match self {
-            CallType::Function(f) => f.compile(context, output),
-            CallType::Method(m) => m.compile(context, output),
+            CallType::Function(f) => f.compile(info, output),
+            CallType::Method(m) => m.compile(info, output),
         }
     }
 }
@@ -1810,8 +1900,8 @@ impl DoStatement {
         Ok(())
     }
 
-    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        self.subroutine_call.call.compile(context, output)?;
+    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
+        self.subroutine_call.call.compile(info, output)?;
         Ok(())
     }
 }
@@ -1876,7 +1966,7 @@ impl ReturnStatement {
 
     fn compile(
         &self,
-        context: &ParseInfo,
+        info: &ParseInfo,
         output: &mut String,
         return_type: &ReturnType,
     ) -> Result<(), Error> {
@@ -1937,7 +2027,7 @@ impl WhileStatement {
         Ok(())
     }
 
-    fn compile(&self, context: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
         Err(Error::NotImplemented {
             file: file!(),
             line: line!(),
@@ -2468,7 +2558,7 @@ fn parse_subroutine_dec(
         symbol_table.add_entry(
             target.param_list.name[i].string(),
             SymbolCategory::Argument,
-            target.param_list.param_type[i].string(),
+            var_type_to_symbol_type(&target.param_list.param_type[i]),
         );
     }
     current_idx = parse_subroutine_body(
@@ -2557,7 +2647,7 @@ fn parse_class_var_dec(
                 ctx.class_symbol_table.add_entry(
                     i.string(),
                     keyword_to_category(target.prefix.keyword()),
-                    target.var_type.string(),
+                    var_type_to_symbol_type(&target.var_type),
                 );
             }
             _other => {
@@ -2657,7 +2747,7 @@ fn parse_class(
 
 /// Parse specified file and generate an internal tree representation
 pub fn parse_file(
-    context: &mut ParseInfo,
+    info: &mut ParseInfo,
     file_reader: &mut std::io::BufReader<std::fs::File>,
 ) -> Result<Box<Class>, Error> {
     let tokens = generate_token_list(file_reader);
@@ -2668,7 +2758,7 @@ pub fn parse_file(
     }
     let mut class = Class::new();
     class.prefix = keyword.clone();
-    current_index = parse_class(context, &mut class, &tokens, current_index + 1)?;
+    current_index = parse_class(info, &mut class, &tokens, current_index + 1)?;
     if current_index != tokens.list.len() - 1 {
         // All tokens should be consumed
         return Err(Error::TokenLeftover {
