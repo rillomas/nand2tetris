@@ -28,6 +28,7 @@ const NOT: &'static str = "not";
 const LABEL: &'static str = "label";
 const IF_GOTO: &'static str = "if-goto";
 const GOTO: &'static str = "goto";
+const LOCAL: &'static str = "local";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -1088,10 +1089,19 @@ impl VarNameTerm {
                 SymbolType::Class(_c) => {
                     panic!("NotImplemented");
                 }
-                _other => {
-                    output.push_str(&format!("{} local {}{}", PUSH, entry.index, NEW_LINE));
-                    Ok(())
-                }
+                _other => match &entry.category {
+                    SymbolCategory::Argument => {
+                        output.push_str(&format!("{} argument {}{}", PUSH, entry.index, NEW_LINE));
+                        Ok(())
+                    }
+                    SymbolCategory::Var => {
+                        output.push_str(&format!("{} {} {}{}", PUSH, LOCAL, entry.index, NEW_LINE));
+                        Ok(())
+                    }
+                    _other => {
+                        panic!("NotImplemented");
+                    }
+                },
             }
         } else {
             // look for class symbol table
@@ -1649,7 +1659,7 @@ impl LetStatement {
                     }
                     _other => {
                         // all other type can be assigned in a single line
-                        output.push_str(&format!("{} local {}{}", POP, entry.index, NEW_LINE));
+                        output.push_str(&format!("{} {} {}{}", POP, LOCAL, entry.index, NEW_LINE));
                         Ok(())
                     }
                 }
