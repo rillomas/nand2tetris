@@ -25,6 +25,9 @@ const POP: &'static str = "pop";
 const CONSTANT: &'static str = "constant";
 const NEG: &'static str = "neg";
 const NOT: &'static str = "not";
+const LABEL: &'static str = "label";
+const IF_GOTO: &'static str = "if-goto";
+const GOTO: &'static str = "goto";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -279,9 +282,24 @@ struct CompileState {
     class_name: String,
     /// Name of current subroutine
     subroutine_name: String,
+    /// Number of times a while occured in a single compile.
+    /// Used to create unique label name per call.
+    while_counter: usize,
+    // Number of times an if occured in a single compile
+    /// Used to create unique label name per call.
+    if_counter: usize,
 }
 
 impl CompileState {
+    fn new(class_name: String) -> CompileState {
+        CompileState {
+            class_name: class_name,
+            subroutine_name: String::from(""),
+            while_counter: 0,
+            if_counter: 0,
+        }
+    }
+
     /// Get full method name with ClassName.SubroutineName
     fn full_method_name(&self) -> String {
         format!("{}.{}", self.class_name, self.subroutine_name)
@@ -338,10 +356,7 @@ impl Class {
     /// Compile to VM text
     pub fn compile(&self, info: &ParseInfo) -> Result<String, Error> {
         let mut output = String::from("");
-        let mut state = CompileState {
-            class_name: self.name.value.clone(),
-            subroutine_name: String::from(""),
-        };
+        let mut state = CompileState::new(self.name.value.clone());
         // Iterate all subroutines
         for s in &self.subroutines {
             s.compile(info, &mut output, &mut state)?;
@@ -1516,12 +1531,12 @@ impl Statement {
         &self,
         info: &ParseInfo,
         output: &mut String,
-        state: &CompileState,
+        state: &mut CompileState,
     ) -> Result<(), Error> {
         match self {
             Statement::Let(l) => l.compile(info, output, state),
             Statement::If(i) => i.compile(info, output),
-            Statement::While(w) => w.compile(info, output),
+            Statement::While(w) => w.compile(info, output, state),
             Statement::Do(d) => d.compile(info, output, state),
             Statement::Return(r) => {
                 let return_type = &info.return_type.table[&state.full_method_name()];
@@ -1704,6 +1719,7 @@ impl IfStatement {
     }
 
     fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
+        print!("{}", &output);
         panic!("NotImplemented");
     }
 }
@@ -2004,6 +2020,18 @@ impl StatementList {
         output.push_str(&end_tag);
         Ok(())
     }
+
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &mut CompileState,
+    ) -> Result<(), Error> {
+        for s in &self.list {
+            s.compile(info, output, state)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -2099,9 +2127,39 @@ impl WhileStatement {
         Ok(())
     }
 
-    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        print!("{}", output);
-        panic!("NotImplemented");
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &mut CompileState,
+    ) -> Result<(), Error> {
+        let counter = state.while_counter;
+        let start_label = format!("WHILE_EXP{}", counter);
+        let end_label = format!("WHILE_END{}", counter);
+        // set start label
+        output.push_str(&format!("{} {}{}", LABEL, start_label, NEW_LINE));
+        // jump to end label if expression is false
+        self.expression.compile(info, output, state)?;
+        output.push_str(&format!(
+            "{0}{nl}{1} {2}{nl}",
+            NOT,
+            IF_GOTO,
+            end_label,
+            nl = NEW_LINE
+        ));
+        // Run loop internal and jump back to start label.
+        // Also place end label
+        self.statements.compile(info, output, state)?;
+        output.push_str(&format!(
+            "{0} {1}{nl}{2} {3}{nl}",
+            GOTO,
+            start_label,
+            LABEL,
+            end_label,
+            nl = NEW_LINE
+        ));
+        state.while_counter += 1;
+        Ok(())
     }
 }
 
