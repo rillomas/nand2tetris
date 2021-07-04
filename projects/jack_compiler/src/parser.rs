@@ -23,6 +23,8 @@ const CALL: &'static str = "call";
 const PUSH: &'static str = "push";
 const POP: &'static str = "pop";
 const CONSTANT: &'static str = "constant";
+const NEG: &'static str = "neg";
+const NOT: &'static str = "not";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -933,12 +935,11 @@ impl Term {
             Term::UnaryOp(u) => u.compile(info, output, state),
             Term::Subroutine(sr) => sr.compile(info, output, state),
             Term::VarName(v) => v.compile(info, output, state),
+            Term::Keyword(k) => k.compile(info, output),
             _other => {
                 println!("{}", output);
-                panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
-            }
-            // Term::Keyword(k) => k.serialize(output, indent_level),
-            // Term::ArrayVar(av) => av.serialize(output, indent_level),
+                panic!("NotImplemented");
+            } // Term::ArrayVar(av) => av.serialize(output, indent_level),
         }
     }
 }
@@ -1065,7 +1066,7 @@ impl VarNameTerm {
             let entry = method_table.unwrap().table.get(&self.name.value).unwrap();
             match &entry.symbol_type {
                 SymbolType::Class(_c) => {
-                    panic!("{} {}:{} NotImplemented", file!(), line!(), column!())
+                    panic!("NotImplemented");
                 }
                 _other => {
                     output.push_str(&format!("{} local {}{}", PUSH, entry.index, NEW_LINE));
@@ -1074,7 +1075,7 @@ impl VarNameTerm {
             }
         } else {
             // look for class symbol table
-            panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
+            panic!("NotImplemented");
         }
     }
 }
@@ -1090,6 +1091,30 @@ impl KeywordTerm {
         self.keyword.serialize(output, next_level)?;
         output.push_str(&end_tag);
         Ok(())
+    }
+
+    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
+        match self.keyword.value.as_str() {
+            tokenizer::TRUE => {
+                // true is -1 so we negate a 0
+                output.push_str(&format!(
+                    "{0} {1} 0{nl}{2}{nl}",
+                    PUSH,
+                    CONSTANT,
+                    NEG,
+                    nl = NEW_LINE
+                ));
+                Ok(())
+            }
+            tokenizer::FALSE => {
+                // false is 0
+                output.push_str(&format!("{} {} 0{}", PUSH, CONSTANT, NEW_LINE));
+                Ok(())
+            }
+            tokenizer::NULL => panic!("Not implemented"),
+            tokenizer::THIS => panic!("Not implemented"),
+            _other => panic!("Unexpected Keyword: {}", _other),
+        }
     }
 }
 
@@ -1146,8 +1171,8 @@ impl UnaryOpTerm {
     ) -> Result<(), Error> {
         self.term.compile(info, output, state)?;
         match self.op.value {
-            '-' => output.push_str(&format!("neg{}", NEW_LINE)),
-            '~' => output.push_str(&format!("not{}", NEW_LINE)),
+            '-' => output.push_str(&format!("{}{}", NEG, NEW_LINE)),
+            '~' => output.push_str(&format!("{}{}", NOT, NEW_LINE)),
             _other => panic!("Unexpected symbol: {}", _other),
         }
         Ok(())
@@ -1277,7 +1302,7 @@ fn parse_term(
                         }
                         '(' => {
                             // parse subroutineCall (functionCall)
-                            panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
+                            panic!("NotImplemented");
                         }
                         '.' => {
                             // parse subroutineCall (methodCall)
@@ -1580,7 +1605,7 @@ impl LetStatement {
         if self.array.is_some() {
             println!("{}", output);
             // compile as array expression
-            panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
+            panic!("NotImplemented");
         } else {
             // compile as normal var
             self.right_hand_side.compile(info, output, state)?;
@@ -1594,7 +1619,7 @@ impl LetStatement {
                     .unwrap();
                 match &entry.symbol_type {
                     SymbolType::Class(_c) => {
-                        panic!("{} {}:{} NotImplemented", file!(), line!(), column!())
+                        panic!("NotImplemented");
                     }
                     _other => {
                         // all other type can be assigned in a single line
@@ -1604,7 +1629,7 @@ impl LetStatement {
                 }
             } else {
                 // look for class symbol table
-                panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
+                panic!("NotImplemented");
             }
         }
     }
@@ -1679,7 +1704,7 @@ impl IfStatement {
     }
 
     fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
+        panic!("NotImplemented");
     }
 }
 
@@ -2028,7 +2053,7 @@ impl ReturnStatement {
                 output.push_str(&format!("{} {} 0{}", PUSH, CONSTANT, NEW_LINE));
             }
             _other => {
-                panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
+                panic!("NotImplemented");
             }
         }
         output.push_str(&format!("return{}", NEW_LINE));
@@ -2075,7 +2100,8 @@ impl WhileStatement {
     }
 
     fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        panic!("{} {}:{} NotImplemented", file!(), line!(), column!());
+        print!("{}", output);
+        panic!("NotImplemented");
     }
 }
 

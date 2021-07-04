@@ -156,10 +156,10 @@ const ELSE: &str = "else";
 const WHILE: &str = "while";
 const DO: &str = "do";
 const RETURN: &str = "return";
-const THIS: &str = "this";
-const TRUE: &str = "true";
-const FALSE: &str = "false";
-const NULL: &str = "null";
+pub const THIS: &str = "this";
+pub const TRUE: &str = "true";
+pub const FALSE: &str = "false";
+pub const NULL: &str = "null";
 
 impl Keyword {
     pub fn new() -> Keyword {
