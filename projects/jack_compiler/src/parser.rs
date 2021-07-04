@@ -276,10 +276,9 @@ impl ParseInfo {
     }
 }
 
-/// State information of current compile
-struct CompileState {
-    /// Name of current class,
-    class_name: String,
+/// Function scoped state.
+/// This gets reset for each function
+struct FunctionScopeState {
     /// Name of current subroutine
     subroutine_name: String,
     /// Number of times a while occured in a single compile.
@@ -290,19 +289,34 @@ struct CompileState {
     if_counter: usize,
 }
 
+impl FunctionScopeState {
+    fn new(subroutine_name: String) -> FunctionScopeState {
+        FunctionScopeState {
+            subroutine_name: subroutine_name,
+            while_counter: 0,
+            if_counter: 0,
+        }
+    }
+}
+
+/// State information of current compile
+struct CompileState {
+    /// Name of current class,
+    class_name: String,
+    func_state: FunctionScopeState,
+}
+
 impl CompileState {
     fn new(class_name: String) -> CompileState {
         CompileState {
             class_name: class_name,
-            subroutine_name: String::from(""),
-            while_counter: 0,
-            if_counter: 0,
+            func_state: FunctionScopeState::new(String::from("")),
         }
     }
 
     /// Get full method name with ClassName.SubroutineName
     fn full_method_name(&self) -> String {
-        format!("{}.{}", self.class_name, self.subroutine_name)
+        format!("{}.{}", self.class_name, self.func_state.subroutine_name)
     }
 }
 
@@ -471,8 +485,8 @@ impl SubroutineDec {
             NEW_LINE
         );
         output.push_str(&func_line);
-        // update current subroutine name
-        state.subroutine_name = self.name.value.clone();
+        // Create new function state
+        state.func_state = FunctionScopeState::new(self.name.value.clone());
         // set parameters
         // set variables
         for s in &self.body.statements.list {
@@ -2133,7 +2147,7 @@ impl WhileStatement {
         output: &mut String,
         state: &mut CompileState,
     ) -> Result<(), Error> {
-        let counter = state.while_counter;
+        let counter = state.func_state.while_counter;
         let start_label = format!("WHILE_EXP{}", counter);
         let end_label = format!("WHILE_END{}", counter);
         // set start label
@@ -2158,7 +2172,7 @@ impl WhileStatement {
             end_label,
             nl = NEW_LINE
         ));
-        state.while_counter += 1;
+        state.func_state.while_counter += 1;
         Ok(())
     }
 }
