@@ -1024,15 +1024,6 @@ impl ArrayVarTerm {
     }
 }
 
-impl ExpressionInParenthesisTerm {
-    fn new() -> ExpressionInParenthesisTerm {
-        ExpressionInParenthesisTerm {
-            expression: Expression::new(),
-            block: Block::new(),
-        }
-    }
-}
-
 impl IntegerTerm {
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = TERM;
@@ -1125,12 +1116,12 @@ impl KeywordTerm {
     fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
         match self.keyword.value.as_str() {
             tokenizer::TRUE => {
-                // true is -1 so we negate a 0
+                // true is -1 so we not a 0
                 output.push_str(&format!(
                     "{0} {1} 0{nl}{2}{nl}",
                     PUSH,
                     CONSTANT,
-                    NEG,
+                    NOT,
                     nl = NEW_LINE
                 ));
                 Ok(())
@@ -1148,6 +1139,12 @@ impl KeywordTerm {
 }
 
 impl ExpressionInParenthesisTerm {
+    fn new() -> ExpressionInParenthesisTerm {
+        ExpressionInParenthesisTerm {
+            expression: Expression::new(),
+            block: Block::new(),
+        }
+    }
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         let label = TERM;
         let indent = INDENT_STR.repeat(indent_level);
@@ -1549,7 +1546,7 @@ impl Statement {
     ) -> Result<(), Error> {
         match self {
             Statement::Let(l) => l.compile(info, output, state),
-            Statement::If(i) => i.compile(info, output),
+            Statement::If(i) => i.compile(info, output, state),
             Statement::While(w) => w.compile(info, output, state),
             Statement::Do(d) => d.compile(info, output, state),
             Statement::Return(r) => {
@@ -1732,9 +1729,36 @@ impl IfStatement {
         Ok(())
     }
 
-    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
-        print!("{}", &output);
-        panic!("NotImplemented");
+    fn compile(
+        &self,
+        info: &ParseInfo,
+        output: &mut String,
+        state: &mut CompileState,
+    ) -> Result<(), Error> {
+        let counter = state.func_state.if_counter;
+        let cond_true_label = format!("IF_TRUE{}", counter);
+        let cond_false_label = format!("IF_FALSE{}", counter);
+        state.func_state.if_counter += 1;
+        self.condition.compile(info, output, state)?;
+        output.push_str(&format!(
+            "{0}{nl}{1} {2}{nl}",
+            NOT,
+            IF_GOTO,
+            cond_false_label,
+            nl = NEW_LINE
+        ));
+        self.statements.compile(info, output, state)?;
+        output.push_str(&format!("{} {}{}", GOTO, cond_true_label, NEW_LINE));
+        output.push_str(&format!("{} {}{}", LABEL, cond_false_label, NEW_LINE));
+        if self.else_block.is_some() {
+            self.else_block
+                .as_ref()
+                .unwrap()
+                .statements
+                .compile(info, output, state)?;
+        }
+        output.push_str(&format!("{} {}{}", LABEL, cond_true_label, NEW_LINE));
+        Ok(())
     }
 }
 
@@ -2095,6 +2119,7 @@ impl ReturnStatement {
                 output.push_str(&format!("{} {} 0{}", PUSH, CONSTANT, NEW_LINE));
             }
             _other => {
+                print!("{}", output);
                 panic!("NotImplemented");
             }
         }
@@ -2150,6 +2175,7 @@ impl WhileStatement {
         let counter = state.func_state.while_counter;
         let start_label = format!("WHILE_EXP{}", counter);
         let end_label = format!("WHILE_END{}", counter);
+        state.func_state.while_counter += 1;
         // set start label
         output.push_str(&format!("{} {}{}", LABEL, start_label, NEW_LINE));
         // jump to end label if expression is false
@@ -2172,7 +2198,6 @@ impl WhileStatement {
             end_label,
             nl = NEW_LINE
         ));
-        state.func_state.while_counter += 1;
         Ok(())
     }
 }
