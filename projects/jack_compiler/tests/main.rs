@@ -54,7 +54,7 @@ fn test_parser(root: &PathBuf, dir: &str) {
     }
 }
 
-fn test_compiler(root: &PathBuf, dir: &str, print_xml: bool) {
+fn test_compiler(root: &PathBuf, dir: &str, print_xml: bool, print_vm: bool, compare_vm: bool) {
     let target = root.join(TEST_DIR).join(DATA_DIR).join(dir);
     // Convert jack to parsed xml for each directory
     let io_list = generate_ioset(&target).unwrap();
@@ -77,14 +77,19 @@ fn test_compiler(root: &PathBuf, dir: &str, print_xml: bool) {
         let vm = class
             .compile(&ctx)
             .expect(format!("Compile failed at {}", io.input_file.display()).as_str());
+        if print_vm {
+            println!("{}", vm);
+        }
 
-        // Compare with golden
-        let mut golden_file_path = io.input_file.clone();
-        let golden_name = format!("{}Gold.vm", origin);
-        golden_file_path.set_file_name(&golden_name);
-        let golden_vm = std::fs::read_to_string(golden_file_path).unwrap();
-        assert_eq!(golden_vm, vm);
-        println!("OK: {} vs {}", &golden_name, io.input_file.display());
+        if compare_vm {
+            // Compare with golden
+            let mut golden_file_path = io.input_file.clone();
+            let golden_name = format!("{}Gold.vm", origin);
+            golden_file_path.set_file_name(&golden_name);
+            let golden_vm = std::fs::read_to_string(golden_file_path).unwrap();
+            assert_eq!(golden_vm, vm);
+            println!("OK: {} vs {}", &golden_name, io.input_file.display());
+        }
     }
 }
 
@@ -127,11 +132,11 @@ fn test_parser_square_xml() {
 #[test]
 fn test_compiler_seven() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    test_compiler(&root, "Seven", false);
+    test_compiler(&root, "Seven", false, false, true);
 }
 
 #[test]
 fn test_compiler_convert_to_bin() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    test_compiler(&root, "ConvertToBin", false);
+    test_compiler(&root, "ConvertToBin", true, false, false);
 }

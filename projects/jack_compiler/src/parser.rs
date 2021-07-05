@@ -29,6 +29,7 @@ const LABEL: &'static str = "label";
 const IF_GOTO: &'static str = "if-goto";
 const GOTO: &'static str = "goto";
 const LOCAL: &'static str = "local";
+const ARGUMENT: &'static str = "argument";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -64,9 +65,13 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-enum SymbolCategory {
+enum MethodSymbolCategory {
     Var,
     Argument,
+}
+
+#[derive(Debug)]
+enum ClassSymbolCategory {
     Static,
     Field,
 }
@@ -97,17 +102,42 @@ enum SymbolType {
 }
 
 #[derive(Debug)]
-struct SymbolTableEntry {
-    category: SymbolCategory,
+struct ClassSymbolTableEntry {
+    category: ClassSymbolCategory,
     /// Type name for this symbol
     symbol_type: SymbolType,
     /// Index of which this symbol showed up
     index: usize,
 }
+impl ClassSymbolTableEntry {
+    fn new(
+        category: ClassSymbolCategory,
+        symbol_type: SymbolType,
+        index: usize,
+    ) -> ClassSymbolTableEntry {
+        ClassSymbolTableEntry {
+            category: category,
+            symbol_type: symbol_type,
+            index: index,
+        }
+    }
+}
 
-impl SymbolTableEntry {
-    fn new(category: SymbolCategory, symbol_type: SymbolType, index: usize) -> SymbolTableEntry {
-        SymbolTableEntry {
+#[derive(Debug)]
+struct MethodSymbolTableEntry {
+    category: MethodSymbolCategory,
+    /// Type name for this symbol
+    symbol_type: SymbolType,
+    /// Index of which this symbol showed up
+    index: usize,
+}
+impl MethodSymbolTableEntry {
+    fn new(
+        category: MethodSymbolCategory,
+        symbol_type: SymbolType,
+        index: usize,
+    ) -> MethodSymbolTableEntry {
+        MethodSymbolTableEntry {
             category: category,
             symbol_type: symbol_type,
             index: index,
@@ -117,7 +147,7 @@ impl SymbolTableEntry {
 
 #[derive(Debug)]
 struct ClassSymbolTable {
-    table: HashMap<String, SymbolTableEntry>,
+    table: HashMap<String, ClassSymbolTableEntry>,
     static_count: usize,
     field_count: usize,
 }
@@ -132,26 +162,25 @@ impl ClassSymbolTable {
     }
 
     /// Add an entry to the symbol table and count up symbol index
-    fn add_entry(&mut self, name: String, category: SymbolCategory, symbol_type: SymbolType) {
+    fn add_entry(&mut self, name: String, category: ClassSymbolCategory, symbol_type: SymbolType) {
         match category {
-            SymbolCategory::Static => {
-                let entry = SymbolTableEntry::new(category, symbol_type, self.static_count);
+            ClassSymbolCategory::Static => {
+                let entry = ClassSymbolTableEntry::new(category, symbol_type, self.static_count);
                 self.table.insert(name, entry);
                 self.static_count += 1;
             }
-            SymbolCategory::Field => {
-                let entry = SymbolTableEntry::new(category, symbol_type, self.field_count);
+            ClassSymbolCategory::Field => {
+                let entry = ClassSymbolTableEntry::new(category, symbol_type, self.field_count);
                 self.table.insert(name, entry);
                 self.field_count += 1;
             }
-            _other => panic!("Unexpected category: {:?}", _other),
         };
     }
 }
 
 #[derive(Debug)]
 struct MethodSymbolTable {
-    table: HashMap<String, SymbolTableEntry>,
+    table: HashMap<String, MethodSymbolTableEntry>,
     argument_count: usize,
     var_count: usize,
 }
@@ -166,19 +195,18 @@ impl MethodSymbolTable {
     }
 
     /// Add an entry to the symbol table and count up symbol index
-    fn add_entry(&mut self, name: String, category: SymbolCategory, symbol_type: SymbolType) {
+    fn add_entry(&mut self, name: String, category: MethodSymbolCategory, symbol_type: SymbolType) {
         match category {
-            SymbolCategory::Argument => {
-                let entry = SymbolTableEntry::new(category, symbol_type, self.argument_count);
+            MethodSymbolCategory::Argument => {
+                let entry = MethodSymbolTableEntry::new(category, symbol_type, self.argument_count);
                 self.table.insert(name, entry);
                 self.argument_count += 1;
             }
-            SymbolCategory::Var => {
-                let entry = SymbolTableEntry::new(category, symbol_type, self.var_count);
+            MethodSymbolCategory::Var => {
+                let entry = MethodSymbolTableEntry::new(category, symbol_type, self.var_count);
                 self.table.insert(name, entry);
                 self.var_count += 1;
             }
-            _other => panic!("Unexpected category: {:?}", _other),
         };
     }
 }
@@ -725,7 +753,7 @@ fn parse_subroutine_body(
                         for v in &vd.names {
                             table.add_entry(
                                 v.string(),
-                                SymbolCategory::Var,
+                                MethodSymbolCategory::Var,
                                 var_type_to_symbol_type(&vd.var_type),
                             );
                         }
@@ -1090,16 +1118,16 @@ impl VarNameTerm {
                     panic!("NotImplemented");
                 }
                 _other => match &entry.category {
-                    SymbolCategory::Argument => {
-                        output.push_str(&format!("{} argument {}{}", PUSH, entry.index, NEW_LINE));
+                    MethodSymbolCategory::Argument => {
+                        output.push_str(&format!(
+                            "{} {} {}{}",
+                            PUSH, ARGUMENT, entry.index, NEW_LINE
+                        ));
                         Ok(())
                     }
-                    SymbolCategory::Var => {
+                    MethodSymbolCategory::Var => {
                         output.push_str(&format!("{} {} {}{}", PUSH, LOCAL, entry.index, NEW_LINE));
                         Ok(())
-                    }
-                    _other => {
-                        panic!("NotImplemented");
                     }
                 },
             }
@@ -1561,7 +1589,7 @@ impl Statement {
             Statement::Do(d) => d.compile(info, output, state),
             Statement::Return(r) => {
                 let return_type = &info.return_type.table[&state.full_method_name()];
-                r.compile(info, output, return_type)
+                r.compile(info, output, state, return_type)
             }
         }
     }
@@ -1658,8 +1686,21 @@ impl LetStatement {
                         panic!("NotImplemented");
                     }
                     _other => {
+                        match entry.category {
+                            MethodSymbolCategory::Var => {
+                                output.push_str(&format!(
+                                    "{} {} {}{}",
+                                    POP, LOCAL, entry.index, NEW_LINE
+                                ));
+                            }
+                            MethodSymbolCategory::Argument => {
+                                output.push_str(&format!(
+                                    "{} {} {}{}",
+                                    POP, ARGUMENT, entry.index, NEW_LINE
+                                ));
+                            }
+                        }
                         // all other type can be assigned in a single line
-                        output.push_str(&format!("{} {} {}{}", POP, LOCAL, entry.index, NEW_LINE));
                         Ok(())
                     }
                 }
@@ -2120,17 +2161,23 @@ impl ReturnStatement {
         &self,
         info: &ParseInfo,
         output: &mut String,
+        state: &CompileState,
         return_type: &ReturnType,
     ) -> Result<(), Error> {
         // Set return value based on return type
         match return_type {
-            &ReturnType::Void => {
+            ReturnType::Void => {
                 // return 0 for void functions
                 output.push_str(&format!("{} {} 0{}", PUSH, CONSTANT, NEW_LINE));
             }
             _other => {
-                print!("{}", output);
-                panic!("NotImplemented");
+                // evaluate expression if it exists and push that value
+                if self.expression.is_some() {
+                    self.expression
+                        .as_ref()
+                        .unwrap()
+                        .compile(info, output, state)?;
+                }
             }
         }
         output.push_str(&format!("return{}", NEW_LINE));
@@ -2733,7 +2780,7 @@ fn parse_subroutine_dec(
     for i in 0..target.param_list.name.len() {
         symbol_table.add_entry(
             target.param_list.name[i].string(),
-            SymbolCategory::Argument,
+            MethodSymbolCategory::Argument,
             var_type_to_symbol_type(&target.param_list.param_type[i]),
         );
     }
@@ -2778,10 +2825,10 @@ fn parse_type<'a>(
     }
 }
 
-fn keyword_to_category(k: KeywordType) -> SymbolCategory {
+fn keyword_to_category(k: KeywordType) -> ClassSymbolCategory {
     match k {
-        KeywordType::Static => SymbolCategory::Static,
-        KeywordType::Field => SymbolCategory::Field,
+        KeywordType::Static => ClassSymbolCategory::Static,
+        KeywordType::Field => ClassSymbolCategory::Field,
         _other => panic!("Unexpected keyword type specified: {:?}", _other),
     }
 }
