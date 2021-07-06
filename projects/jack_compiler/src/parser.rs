@@ -322,8 +322,6 @@ impl DirectoryParseInfo {
 
 /// Information gathered while parsing a single class
 pub struct ClassParseInfo {
-    /// Path of the file
-    name: String,
     class_symbol_table: ClassSymbolTable,
     symbol_table_per_method: HashMap<String, MethodSymbolTable>,
     return_type: ReturnTypeTable,
@@ -332,7 +330,6 @@ pub struct ClassParseInfo {
 impl ClassParseInfo {
     pub fn new() -> ClassParseInfo {
         ClassParseInfo {
-            name: String::new(),
             class_symbol_table: ClassSymbolTable::new(),
             symbol_table_per_method: HashMap::new(),
             return_type: ReturnTypeTable::new(),
@@ -2954,7 +2951,6 @@ fn parse_class(
     let mut current_idx = token_index;
     let name = tokens.list[current_idx].identifier().unwrap();
     class.name = name.to_owned();
-    ctx.name = name.value.to_owned();
     current_idx += 1;
     let open_brace = tokens.list[current_idx].symbol().unwrap();
     if open_brace.value != '{' {
