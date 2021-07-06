@@ -286,21 +286,56 @@ fn init_os_functions(table: &mut ReturnTypeTable) {
     }
 }
 
-/// Information gathered while parsing source code
-pub struct ParseInfo {
+/// Information gathered while parsing the whole directory's source code
+pub struct DirectoryParseInfo {
+    os_functions: ReturnTypeTable,
+    pub info_per_class: HashMap<String, ClassParseInfo>,
+}
+
+impl DirectoryParseInfo {
+    pub fn new() -> DirectoryParseInfo {
+        let mut rt = ReturnTypeTable::new();
+        init_os_functions(&mut rt);
+        DirectoryParseInfo {
+            info_per_class: HashMap::new(),
+            os_functions: rt,
+        }
+    }
+
+    /// Look for return type through all OS functions and all classes
+    fn get_return_type(&self, method_name: &str) -> Option<&ReturnType> {
+        // search OS
+        let os_rt = self.os_functions.table.get(method_name);
+        if os_rt.is_some() {
+            return os_rt;
+        }
+        // search each class
+        for (_, c) in &self.info_per_class {
+            let c_rt = c.return_type.table.get(method_name);
+            if c_rt.is_some() {
+                return c_rt;
+            }
+        }
+        None
+    }
+}
+
+/// Information gathered while parsing a single class
+pub struct ClassParseInfo {
+    /// Path of the file
+    name: String,
     class_symbol_table: ClassSymbolTable,
     symbol_table_per_method: HashMap<String, MethodSymbolTable>,
     return_type: ReturnTypeTable,
 }
 
-impl ParseInfo {
-    pub fn new() -> ParseInfo {
-        let mut rt = ReturnTypeTable::new();
-        init_os_functions(&mut rt);
-        ParseInfo {
+impl ClassParseInfo {
+    pub fn new() -> ClassParseInfo {
+        ClassParseInfo {
+            name: String::new(),
             class_symbol_table: ClassSymbolTable::new(),
             symbol_table_per_method: HashMap::new(),
-            return_type: rt,
+            return_type: ReturnTypeTable::new(),
         }
     }
 }
@@ -370,6 +405,10 @@ impl Class {
         }
     }
 
+    pub fn name(&self) -> &str {
+        &self.name.value
+    }
+
     /// Serialize to XML
     pub fn serialize(
         &self,
@@ -397,7 +436,7 @@ impl Class {
     }
 
     /// Compile to VM text
-    pub fn compile(&self, info: &ParseInfo) -> Result<String, Error> {
+    pub fn compile(&self, info: &DirectoryParseInfo) -> Result<String, Error> {
         let mut output = String::from("");
         let mut state = CompileState::new(self.name.value.clone());
         // Iterate all subroutines
@@ -501,7 +540,7 @@ impl SubroutineDec {
 
     pub fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &mut CompileState,
     ) -> Result<(), Error> {
@@ -576,7 +615,7 @@ impl ParameterList {
 }
 
 fn parse_parameter_list(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut ParameterList,
     tokens: &TokenList,
     token_index: usize,
@@ -701,7 +740,7 @@ impl SubroutineBody {
 }
 
 fn parse_subroutine_body(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     table: &mut MethodSymbolTable,
     target: &mut SubroutineBody,
     tokens: &TokenList,
@@ -836,7 +875,7 @@ impl VarDec {
 }
 
 fn parse_var_dec(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut VarDec,
     tokens: &TokenList,
     token_index: usize,
@@ -937,7 +976,7 @@ impl Expression {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
@@ -982,7 +1021,7 @@ impl Term {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
@@ -1066,7 +1105,7 @@ impl IntegerTerm {
         Ok(())
     }
 
-    fn compile(&self, _context: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, _context: &DirectoryParseInfo, output: &mut String) -> Result<(), Error> {
         let line = format!("{} {} {}{}", PUSH, CONSTANT, self.integer.value, NEW_LINE);
         output.push_str(&line);
         Ok(())
@@ -1086,7 +1125,7 @@ impl StringTerm {
         Ok(())
     }
 
-    fn compile(&self, _context: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, _context: &DirectoryParseInfo, output: &mut String) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -1106,11 +1145,14 @@ impl VarNameTerm {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
-        let method_table = info.symbol_table_per_method.get(&state.full_method_name());
+        let class_info = info.info_per_class.get(&state.class_name).unwrap();
+        let method_table = class_info
+            .symbol_table_per_method
+            .get(&state.full_method_name());
         if method_table.is_some() {
             let entry = method_table.unwrap().table.get(&self.name.value).unwrap();
             match &entry.symbol_type {
@@ -1151,7 +1193,7 @@ impl KeywordTerm {
         Ok(())
     }
 
-    fn compile(&self, info: &ParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(&self, info: &DirectoryParseInfo, output: &mut String) -> Result<(), Error> {
         match self.keyword.value.as_str() {
             tokenizer::TRUE => {
                 // true is -1 so we not a 0
@@ -1229,7 +1271,7 @@ impl UnaryOpTerm {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
@@ -1263,7 +1305,7 @@ impl SubroutineCallTerm {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
@@ -1302,7 +1344,7 @@ impl Op {
 }
 
 fn parse_term(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     tokens: &TokenList,
     token_index: usize,
 ) -> Result<(Term, usize), Error> {
@@ -1469,7 +1511,7 @@ fn parse_term(
 }
 
 fn parse_expression(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut Expression,
     tokens: &TokenList,
     token_index: usize,
@@ -1578,7 +1620,7 @@ impl Statement {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &mut CompileState,
     ) -> Result<(), Error> {
@@ -1588,7 +1630,10 @@ impl Statement {
             Statement::While(w) => w.compile(info, output, state),
             Statement::Do(d) => d.compile(info, output, state),
             Statement::Return(r) => {
-                let return_type = &info.return_type.table[&state.full_method_name()];
+                // Get the return type for current subroutine.
+                // This should be in the same class
+                let class_info = info.info_per_class.get(&state.class_name).unwrap();
+                let return_type = &class_info.return_type.table[&state.full_method_name()];
                 r.compile(info, output, state, return_type)
             }
         }
@@ -1662,7 +1707,7 @@ impl LetStatement {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
@@ -1674,7 +1719,10 @@ impl LetStatement {
             // compile as normal var
             self.right_hand_side.compile(info, output, state)?;
             // We should have the right hand value at top of stack so we assign that to var
-            let method_table = info.symbol_table_per_method.get(&state.full_method_name());
+            let class_info = info.info_per_class.get(&state.class_name).unwrap();
+            let method_table = class_info
+                .symbol_table_per_method
+                .get(&state.full_method_name());
             if method_table.is_some() {
                 let entry = method_table
                     .unwrap()
@@ -1683,9 +1731,12 @@ impl LetStatement {
                     .unwrap();
                 match &entry.symbol_type {
                     SymbolType::Class(_c) => {
+                        // We assume that the called method has arranged a pointer on the top of the stack
+                        print!("{}", output);
                         panic!("NotImplemented");
                     }
                     _other => {
+                        // all other type can be assigned in a single line
                         match entry.category {
                             MethodSymbolCategory::Var => {
                                 output.push_str(&format!(
@@ -1700,7 +1751,6 @@ impl LetStatement {
                                 ));
                             }
                         }
-                        // all other type can be assigned in a single line
                         Ok(())
                     }
                 }
@@ -1782,7 +1832,7 @@ impl IfStatement {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &mut CompileState,
     ) -> Result<(), Error> {
@@ -1855,7 +1905,7 @@ impl ExpressionList {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
@@ -1867,7 +1917,7 @@ impl ExpressionList {
 }
 
 fn parse_expression_list(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut ExpressionList,
     tokens: &TokenList,
     token_index: usize,
@@ -1930,7 +1980,7 @@ impl FunctionCall {
     }
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
@@ -1978,7 +2028,7 @@ impl MethodCall {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
@@ -1992,12 +2042,17 @@ impl MethodCall {
             NEW_LINE
         );
         output.push_str(&line);
-        // if the method call's return type is void
-        // we add an instruction to drop the implicit returned 0
-        let rt = info.return_type.table.get(&caller).unwrap();
-        if matches!(rt, ReturnType::Void) {
-            output.push_str(&format!("pop temp 0{}", NEW_LINE));
+        // Search for the caller's return type from all class and OS functions
+        let maybe_rt = info.get_return_type(&caller);
+        if maybe_rt.is_some() {
+            if matches!(maybe_rt.unwrap(), ReturnType::Void) {
+                // if the method call's return type is void
+                // we add an instruction to drop the implicit returned 0
+                output.push_str(&format!("{} temp 0{}", POP, NEW_LINE));
+            }
         }
+        // If the caller is not in the table, target method is from a different file.
+        // We don't have information of the return type so we just ignore it
 
         Ok(())
     }
@@ -2013,7 +2068,7 @@ enum CallType {
 impl CallType {
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
@@ -2078,7 +2133,7 @@ impl DoStatement {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
@@ -2112,7 +2167,7 @@ impl StatementList {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &mut CompileState,
     ) -> Result<(), Error> {
@@ -2159,7 +2214,7 @@ impl ReturnStatement {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &CompileState,
         return_type: &ReturnType,
@@ -2225,7 +2280,7 @@ impl WhileStatement {
 
     fn compile(
         &self,
-        info: &ParseInfo,
+        info: &DirectoryParseInfo,
         output: &mut String,
         state: &mut CompileState,
     ) -> Result<(), Error> {
@@ -2260,7 +2315,7 @@ impl WhileStatement {
 }
 
 fn parse_let_statement(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut LetStatement,
     tokens: &TokenList,
     token_index: usize,
@@ -2317,7 +2372,7 @@ fn parse_let_statement(
 }
 
 fn parse_else_block(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut ElseBlock,
     tokens: &TokenList,
     token_index: usize,
@@ -2350,7 +2405,7 @@ fn parse_else_block(
 }
 
 fn parse_if_statement(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut IfStatement,
     tokens: &TokenList,
     token_index: usize,
@@ -2425,7 +2480,7 @@ fn parse_if_statement(
 }
 
 fn parse_subroutine_call(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut SubroutineCall,
     tokens: &TokenList,
     token_index: usize,
@@ -2504,7 +2559,7 @@ fn parse_subroutine_call(
 }
 
 fn parse_do_statement(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut DoStatement,
     tokens: &TokenList,
     token_index: usize,
@@ -2525,7 +2580,7 @@ fn parse_do_statement(
 }
 
 fn parse_return_statement(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut ReturnStatement,
     tokens: &TokenList,
     token_index: usize,
@@ -2583,7 +2638,7 @@ fn parse_return_statement(
 }
 
 fn parse_while_statement(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut WhileStatement,
     tokens: &TokenList,
     token_index: usize,
@@ -2640,7 +2695,7 @@ fn parse_while_statement(
 }
 
 fn parse_statements(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut StatementList,
     tokens: &TokenList,
     token_index: usize,
@@ -2740,7 +2795,7 @@ fn token_to_return_type(t: &Token) -> ReturnType {
 }
 
 fn parse_subroutine_dec(
-    info: &mut ParseInfo,
+    info: &mut ClassParseInfo,
     target: &mut SubroutineDec,
     tokens: &TokenList,
     token_index: usize,
@@ -2797,7 +2852,7 @@ fn parse_subroutine_dec(
 }
 
 fn parse_type<'a>(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     token: &'a Token,
     token_index: usize,
 ) -> Result<&'a Token, Error> {
@@ -2834,7 +2889,7 @@ fn keyword_to_category(k: KeywordType) -> ClassSymbolCategory {
 }
 
 fn parse_class_var_dec(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     target: &mut ClassVarDec,
     tokens: &TokenList,
     token_index: usize,
@@ -2890,7 +2945,7 @@ fn parse_class_var_dec(
 
 /// Check and ingest all tokens related to current class
 fn parse_class(
-    ctx: &mut ParseInfo,
+    ctx: &mut ClassParseInfo,
     class: &mut Class,
     tokens: &TokenList,
     token_index: usize,
@@ -2899,6 +2954,7 @@ fn parse_class(
     let mut current_idx = token_index;
     let name = tokens.list[current_idx].identifier().unwrap();
     class.name = name.to_owned();
+    ctx.name = name.value.to_owned();
     current_idx += 1;
     let open_brace = tokens.list[current_idx].symbol().unwrap();
     if open_brace.value != '{' {
@@ -2970,7 +3026,7 @@ fn parse_class(
 
 /// Parse specified file and generate an internal tree representation
 pub fn parse_file(
-    info: &mut ParseInfo,
+    info: &mut ClassParseInfo,
     file_reader: &mut std::io::BufReader<std::fs::File>,
 ) -> Result<Class, Error> {
     let tokens = generate_token_list(file_reader);
