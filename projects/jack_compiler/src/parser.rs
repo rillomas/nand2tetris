@@ -70,11 +70,25 @@ enum MethodSymbolCategory {
     Argument,
 }
 
+fn method_symbol_category_to_segment(category: &MethodSymbolCategory) -> &'static str {
+    match category {
+        MethodSymbolCategory::Argument => ARGUMENT,
+        MethodSymbolCategory::Var => LOCAL,
+    }
+}
+
 #[derive(Debug)]
 enum ClassSymbolCategory {
     Static,
     Field,
 }
+
+// fn class_symbol_category_to_segment(category: ClassSymbolCategory) -> &'static str {
+//     match category {
+//         ClassSymbolCategory::Static => ARGUMENT,
+//         ClassSymbolCategory::Field => LOCAL,
+//     }
+// }
 
 fn var_type_to_symbol_type(var_type: &Token) -> SymbolType {
     match var_type {
@@ -159,6 +173,11 @@ impl ClassSymbolTable {
             static_count: 0,
             field_count: 0,
         }
+    }
+
+    /// Check if given var_name is included as a variable or argument
+    fn contains(&self, var_name: &str) -> bool {
+        self.table.contains_key(var_name)
     }
 
     /// Add an entry to the symbol table and count up symbol index
@@ -287,6 +306,7 @@ fn init_os_functions(table: &mut ReturnTypeTable) {
 }
 
 /// Information gathered while parsing the whole directory's source code
+#[derive(Debug)]
 pub struct DirectoryParseInfo {
     os_functions: ReturnTypeTable,
     pub info_per_class: HashMap<String, ClassParseInfo>,
@@ -321,6 +341,7 @@ impl DirectoryParseInfo {
 }
 
 /// Information gathered while parsing a single class
+#[derive(Debug)]
 pub struct ClassParseInfo {
     class_symbol_table: ClassSymbolTable,
     symbol_table_per_method: HashMap<String, MethodSymbolTable>,
@@ -1156,19 +1177,11 @@ impl VarNameTerm {
                 SymbolType::Class(_c) => {
                     panic!("NotImplemented");
                 }
-                _other => match &entry.category {
-                    MethodSymbolCategory::Argument => {
-                        output.push_str(&format!(
-                            "{} {} {}{}",
-                            PUSH, ARGUMENT, entry.index, NEW_LINE
-                        ));
-                        Ok(())
-                    }
-                    MethodSymbolCategory::Var => {
-                        output.push_str(&format!("{} {} {}{}", PUSH, LOCAL, entry.index, NEW_LINE));
-                        Ok(())
-                    }
-                },
+                _other => {
+                    let segment = method_symbol_category_to_segment(&entry.category);
+                    output.push_str(&format!("{} {} {}{}", PUSH, segment, entry.index, NEW_LINE));
+                    Ok(())
+                }
             }
         } else {
             // look for class symbol table
@@ -1721,36 +1734,18 @@ impl LetStatement {
                 .symbol_table_per_method
                 .get(&state.full_method_name());
             if method_table.is_some() {
+                // Get the entry for current var
                 let entry = method_table
                     .unwrap()
                     .table
                     .get(&self.var_name.value)
                     .unwrap();
-                match &entry.symbol_type {
-                    SymbolType::Class(_c) => {
-                        // We assume that the called method has arranged a pointer on the top of the stack
-                        print!("{}", output);
-                        panic!("NotImplemented");
-                    }
-                    _other => {
-                        // all other type can be assigned in a single line
-                        match entry.category {
-                            MethodSymbolCategory::Var => {
-                                output.push_str(&format!(
-                                    "{} {} {}{}",
-                                    POP, LOCAL, entry.index, NEW_LINE
-                                ));
-                            }
-                            MethodSymbolCategory::Argument => {
-                                output.push_str(&format!(
-                                    "{} {} {}{}",
-                                    POP, ARGUMENT, entry.index, NEW_LINE
-                                ));
-                            }
-                        }
-                        Ok(())
-                    }
-                }
+                // Whether the target variable is any type
+                // we assume that the right hand side has arranged a value or pointer on the top of the stack.
+                // We just assign that to taget variable
+                let segment = method_symbol_category_to_segment(&entry.category);
+                output.push_str(&format!("{} {} {}{}", POP, segment, entry.index, NEW_LINE));
+                Ok(())
             } else {
                 // look for class symbol table
                 panic!("NotImplemented");
@@ -2029,28 +2024,58 @@ impl MethodCall {
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
+        // Get the symbol table for the current compiling method
+        let current_class_info = info.info_per_class.get(&state.class_name).unwrap();
+        let method_symbol_table = current_class_info
+            .symbol_table_per_method
+            .get(&state.full_method_name())
+            .unwrap();
+        let name = &self.source_name.value;
+        let mut caller_base = &String::from("");
+        let mut param_num = self.parameters.list.len();
+        if method_symbol_table.table.contains_key(name) {
+            // source is class instance.
+            // If the source is a class instance, we first need to push the instance and then the parameters
+            let entry = method_symbol_table.table.get(name).unwrap();
+            let segment = method_symbol_category_to_segment(&entry.category);
+            let line = format!("{} {} {}{}", PUSH, segment, entry.index, NEW_LINE);
+            output.push_str(&line);
+            // The caller name will be the class name of the instance
+            if let SymbolType::Class(class_name) = &entry.symbol_type {
+                caller_base = class_name;
+            }
+            param_num += 1; // We add the instance as another parameter
+        } else if current_class_info
+            .class_symbol_table
+            .table
+            .contains_key(name)
+        {
+            // source is class instance.
+            // If the source is a class instance, we first need to push the instance and then the parameters
+            // let entry = class_info.class_symbol_table.table.get(name).unwrap();
+            // // The caller name will be the class name of the instance
+            // if let SymbolType::Class(class_name) = &entry.symbol_type {
+            //     caller_base = class_name;
+            // }
+            panic!("NotImplemented");
+        } else {
+            // source is a class.
+            // If the source is a class, we don't need to push the instance first.
+            caller_base = name;
+        }
         self.parameters.compile(info, output, state)?;
-        let caller = format!("{}.{}", self.source_name.value, self.method_name.value);
-        let line = format!(
-            "{} {} {}{}",
-            CALL,
-            caller,
-            self.parameters.list.len(),
-            NEW_LINE
-        );
+        let caller = format!("{}.{}", caller_base, self.method_name.value);
+        let line = format!("{} {} {}{}", CALL, caller, param_num, NEW_LINE);
         output.push_str(&line);
         // Search for the caller's return type from all class and OS functions
-        let maybe_rt = info.get_return_type(&caller);
-        if maybe_rt.is_some() {
-            if matches!(maybe_rt.unwrap(), ReturnType::Void) {
-                // if the method call's return type is void
-                // we add an instruction to drop the implicit returned 0
-                output.push_str(&format!("{} temp 0{}", POP, NEW_LINE));
-            }
+        let rt = info.get_return_type(&caller).unwrap();
+        if matches!(rt, ReturnType::Void) {
+            // if the method call's return type is void
+            // we add an instruction to drop the implicit returned 0
+            output.push_str(&format!("{} temp 0{}", POP, NEW_LINE));
         }
-        // If the caller is not in the table, target method is from a different file.
-        // We don't have information of the return type so we just ignore it
-
+        // For all other return types we assume that a sufficient value has been
+        // placed on the global stack. We don't really care at this point.
         Ok(())
     }
 }

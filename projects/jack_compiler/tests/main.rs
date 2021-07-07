@@ -61,7 +61,6 @@ fn test_compiler(root: &PathBuf, dir: &str, print_xml: bool, print_vm: bool, com
     let mut dir_info = jack_compiler::parser::DirectoryParseInfo::new();
     let mut class_list = Vec::new();
     for mut io in io_list {
-        println!("Parsing {}", io.input_file.display());
         // let mut output_file_path = io.input_file.clone();
         // let output_name = format!("{}.vm", origin);
         // output_file_path.set_file_name(&output_name);
@@ -78,6 +77,7 @@ fn test_compiler(root: &PathBuf, dir: &str, print_xml: bool, print_vm: bool, com
         class_list.push((class, io.input_file));
     }
     for (c, input_file) in class_list {
+        println!("Compiling {}", input_file.display());
         // Compile to vm text
         let vm = c
             .compile(&dir_info)
@@ -150,5 +150,5 @@ fn test_compiler_convert_to_bin() {
 #[test]
 fn test_compiler_square() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    test_compiler(&root, "Square2", false, false, false);
+    test_compiler(&root, "Square2", false, true, false);
 }
