@@ -83,12 +83,12 @@ enum ClassSymbolCategory {
     Field,
 }
 
-// fn class_symbol_category_to_segment(category: ClassSymbolCategory) -> &'static str {
-//     match category {
-//         ClassSymbolCategory::Static => ARGUMENT,
-//         ClassSymbolCategory::Field => LOCAL,
-//     }
-// }
+fn class_symbol_category_to_segment(category: &ClassSymbolCategory) -> &'static str {
+    match category {
+        ClassSymbolCategory::Static => tokenizer::STATIC,
+        ClassSymbolCategory::Field => tokenizer::THIS,
+    }
+}
 
 fn var_type_to_symbol_type(var_type: &Token) -> SymbolType {
     match var_type {
@@ -1222,7 +1222,10 @@ impl KeywordTerm {
                 Ok(())
             }
             tokenizer::NULL => panic!("Not implemented"),
-            tokenizer::THIS => panic!("Not implemented"),
+            tokenizer::THIS => {
+                println!("{}", output);
+                panic!("Not implemented")
+            }
             _other => panic!("Unexpected Keyword: {}", _other),
         }
     }
@@ -1732,23 +1735,28 @@ impl LetStatement {
             let class_info = info.info_per_class.get(&state.class_name).unwrap();
             let method_table = class_info
                 .symbol_table_per_method
-                .get(&state.full_method_name());
-            if method_table.is_some() {
-                // Get the entry for current var
-                let entry = method_table
-                    .unwrap()
-                    .table
-                    .get(&self.var_name.value)
-                    .unwrap();
+                .get(&state.full_method_name())
+                .unwrap();
+            // Get the entry for current var
+            let maybe_entry = method_table.table.get(&self.var_name.value);
+            if maybe_entry.is_some() {
                 // Whether the target variable is any type
                 // we assume that the right hand side has arranged a value or pointer on the top of the stack.
                 // We just assign that to taget variable
+                let entry = maybe_entry.unwrap();
                 let segment = method_symbol_category_to_segment(&entry.category);
                 output.push_str(&format!("{} {} {}{}", POP, segment, entry.index, NEW_LINE));
                 Ok(())
             } else {
-                // look for class symbol table
-                panic!("NotImplemented");
+                // Should be on class table
+                let entry = class_info
+                    .class_symbol_table
+                    .table
+                    .get(&self.var_name.value)
+                    .unwrap();
+                let segment = class_symbol_category_to_segment(&entry.category);
+                output.push_str(&format!("{} {} {}{}", POP, segment, entry.index, NEW_LINE));
+                Ok(())
             }
         }
     }

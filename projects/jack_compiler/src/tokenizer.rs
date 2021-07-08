@@ -139,7 +139,7 @@ pub struct Keyword {
     pub value: String,
 }
 
-const STATIC: &str = "static";
+pub const STATIC: &str = "static";
 const CONSTRUCTOR: &str = "constructor";
 const FUNCTION: &str = "function";
 pub const CLASS: &str = "class";
