@@ -140,10 +140,10 @@ pub struct Keyword {
 }
 
 pub const STATIC: &str = "static";
-const CONSTRUCTOR: &str = "constructor";
-const FUNCTION: &str = "function";
+pub const CONSTRUCTOR: &str = "constructor";
+pub const FUNCTION: &str = "function";
 pub const CLASS: &str = "class";
-const METHOD: &str = "method";
+pub const METHOD: &str = "method";
 const FIELD: &str = "field";
 pub const VOID: &str = "void";
 const INT: &str = "int";

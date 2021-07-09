@@ -360,11 +360,32 @@ impl ClassParseInfo {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+enum SubroutineType {
+    Constructor,
+    /// Method must be called from an instance
+    Method,
+    /// Function is a class oriented function (like a static function) with
+    /// no need for class instances
+    Function,
+}
+
+fn keyword_to_subroutine_type(keyword: &str) -> SubroutineType {
+    match keyword {
+        tokenizer::CONSTRUCTOR => SubroutineType::Constructor,
+        tokenizer::METHOD => SubroutineType::Method,
+        tokenizer::FUNCTION => SubroutineType::Function,
+        _ => panic!("Unexpected keyword"),
+    }
+}
+
 /// Function scoped state.
 /// This gets reset for each function
 struct FunctionScopeState {
     /// Name of current subroutine
     subroutine_name: String,
+    /// Type of current subroutine
+    subroutine_type: SubroutineType,
     /// Number of times a while occured in a single compile.
     /// Used to create unique label name per call.
     while_counter: usize,
@@ -374,9 +395,10 @@ struct FunctionScopeState {
 }
 
 impl FunctionScopeState {
-    fn new(subroutine_name: String) -> FunctionScopeState {
+    fn new(subroutine_name: String, subroutine_type: SubroutineType) -> FunctionScopeState {
         FunctionScopeState {
             subroutine_name: subroutine_name,
+            subroutine_type: subroutine_type,
             while_counter: 0,
             if_counter: 0,
         }
@@ -394,7 +416,7 @@ impl CompileState {
     fn new(class_name: String) -> CompileState {
         CompileState {
             class_name: class_name,
-            func_state: FunctionScopeState::new(String::from("")),
+            func_state: FunctionScopeState::new(String::from(""), SubroutineType::Constructor),
         }
     }
 
@@ -574,8 +596,9 @@ impl SubroutineDec {
         );
         output.push_str(&func_line);
         // Create new function state
-        state.func_state = FunctionScopeState::new(self.name.value.clone());
-        if matches!(self.prefix.keyword(), KeywordType::Constructor) {
+        let subroutine_type = keyword_to_subroutine_type(&self.prefix.value);
+        state.func_state = FunctionScopeState::new(self.name.value.clone(), subroutine_type);
+        if matches!(subroutine_type, SubroutineType::Constructor) {
             // We do some special memory assignment for constructors
             let class_info = info.info_per_class.get(&state.class_name).unwrap();
             let var_num = class_info.class_symbol_table.field_count;
@@ -2004,12 +2027,37 @@ impl ImplicitMethodCall {
         state: &CompileState,
     ) -> Result<(), Error> {
         self.parameters.compile(info, output, state)?;
+        // Push instance on the stack from appropriate segment and index
+        let (segment, index) = match state.func_state.subroutine_type {
+            // If we are in a constructor we should push the instance from a pointer segment
+            SubroutineType::Constructor => (POINTER, 0),
+            SubroutineType::Method => {
+                // If we are in a method we should push based on the info from the symbol table
+                let class_info = info.info_per_class.get(&state.class_name).unwrap();
+                let mst = class_info
+                    .symbol_table_per_method
+                    .get(&state.full_method_name())
+                    .unwrap();
+                // println!("{:?}", mst);
+                let this_entry = mst.table.get(tokenizer::THIS).unwrap();
+                (
+                    method_symbol_category_to_segment(&this_entry.category),
+                    this_entry.index,
+                )
+            }
+            // For functions we shouldn't have any implicit method calls
+            _ => panic!("Unexpected subroutine type encountered"),
+        };
         let line = format!(
-            "{} {} {}{}",
+            "{} {} {}{nl}{} {}.{} {}{nl}",
+            PUSH,
+            segment,
+            index,
             CALL,
+            state.class_name,
             self.name.value,
-            self.parameters.list.len(),
-            NEW_LINE
+            self.parameters.list.len() + 1, // +1 for the instance
+            nl = NEW_LINE
         );
         output.push_str(&line);
         Ok(())
@@ -2853,6 +2901,15 @@ fn parse_subroutine_dec(
 ) -> Result<usize, Error> {
     let mut current_idx = token_index;
     let mut symbol_table = MethodSymbolTable::new(); // Create new symbol table for every new subroutine
+
+    if matches!(target.prefix.keyword(), KeywordType::Method) {
+        // If the subroutine is a method, a symbol entry for this should be added as argument 0
+        symbol_table.add_entry(
+            tokenizer::THIS.to_string(),
+            MethodSymbolCategory::Argument,
+            SymbolType::Class(class_name.to_string()),
+        );
+    }
     let token = &tokens.list[current_idx];
     let rt = match token {
         Token::Keyword(word) => match word.keyword() {
