@@ -30,6 +30,8 @@ const IF_GOTO: &'static str = "if-goto";
 const GOTO: &'static str = "goto";
 const LOCAL: &'static str = "local";
 const ARGUMENT: &'static str = "argument";
+const POINTER: &'static str = "pointer";
+const MEMORY_ALLOC: &'static str = "Memory.alloc";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -294,7 +296,7 @@ fn init_os_functions(table: &mut ReturnTypeTable) {
         ("Keyboard.readInt", ReturnType::Int),
         ("Memory.peek", ReturnType::Int),
         ("Memory.poke", ReturnType::Void),
-        ("Memory.alloc", arr.clone()),
+        (MEMORY_ALLOC, arr.clone()),
         ("Memory.dealloc", ReturnType::Void),
         ("Sys.halt", ReturnType::Void),
         ("Sys.error", ReturnType::Void),
@@ -522,7 +524,7 @@ impl ClassVarDec {
 }
 
 struct SubroutineDec {
-    prefix: Keyword,
+    prefix: Keyword,    // should be constructor, function, or method
     return_type: Token, // return_type is a Keyword or an Identifier
     name: Identifier,
     param_list: ParameterList,
@@ -573,8 +575,23 @@ impl SubroutineDec {
         output.push_str(&func_line);
         // Create new function state
         state.func_state = FunctionScopeState::new(self.name.value.clone());
-        // set parameters
-        // set variables
+        if matches!(self.prefix.keyword(), KeywordType::Constructor) {
+            // We do some special memory assignment for constructors
+            let class_info = info.info_per_class.get(&state.class_name).unwrap();
+            let var_num = class_info.class_symbol_table.field_count;
+            // Allocate memory for class variables and set as 'this' pointer
+            output.push_str(&format!(
+                "{0} {1} {2}{nl}{3} {4} 1{nl}{5} {6} 0{nl}",
+                PUSH,
+                CONSTANT,
+                var_num,
+                CALL,
+                MEMORY_ALLOC,
+                POP,
+                POINTER,
+                nl = NEW_LINE
+            ));
+        }
         for s in &self.body.statements.list {
             s.compile(info, output, state)?;
         }
