@@ -1442,7 +1442,7 @@ fn parse_term(
                         }
                         '.' => {
                             // parse subroutineCall (methodCall)
-                            let mut mc = MethodCall::new();
+                            let mut mc = ExplicitMethodCall::new();
                             mc.source_name = id.to_owned();
                             mc.dot = s.to_owned();
                             current_idx += 1;
@@ -1478,7 +1478,7 @@ fn parse_term(
                             }
                             mc.parameter_block.end = close_paren.to_owned();
                             let mut sc = SubroutineCallTerm::new();
-                            sc.call.call = CallType::Method(mc);
+                            sc.call.call = CallType::Explicit(mc);
                             Ok((Term::Subroutine(sc), current_idx + 1))
                         }
                         _other => {
@@ -1973,16 +1973,18 @@ fn parse_expression_list(
     Ok(current_idx)
 }
 
+/// A method call without any class name.
+/// Usually the class itself has another method declared
 #[derive(Debug)]
-struct FunctionCall {
+struct ImplicitMethodCall {
     name: Identifier,
     parameter_block: Block,
     parameters: ExpressionList,
 }
 
-impl FunctionCall {
-    fn new() -> FunctionCall {
-        FunctionCall {
+impl ImplicitMethodCall {
+    fn new() -> ImplicitMethodCall {
+        ImplicitMethodCall {
             name: Identifier::new(),
             parameter_block: Block::new(),
             parameters: ExpressionList::new(),
@@ -2015,7 +2017,8 @@ impl FunctionCall {
 }
 
 #[derive(Debug)]
-struct MethodCall {
+/// A method call with an explicit class name specified
+struct ExplicitMethodCall {
     source_name: Identifier, // a className or varName
     dot: Symbol,
     method_name: Identifier,
@@ -2023,9 +2026,9 @@ struct MethodCall {
     parameters: ExpressionList,
 }
 
-impl MethodCall {
-    fn new() -> MethodCall {
-        MethodCall {
+impl ExplicitMethodCall {
+    fn new() -> ExplicitMethodCall {
+        ExplicitMethodCall {
             source_name: Identifier::new(),
             dot: Symbol::new(),
             method_name: Identifier::new(),
@@ -2108,8 +2111,8 @@ impl MethodCall {
 /// We use enum to restrict the child of SubroutineCall to be either FunctionCall or MethodCall
 #[derive(Debug)]
 enum CallType {
-    Function(FunctionCall),
-    Method(MethodCall),
+    Implicit(ImplicitMethodCall),
+    Explicit(ExplicitMethodCall),
 }
 
 impl CallType {
@@ -2120,8 +2123,8 @@ impl CallType {
         state: &CompileState,
     ) -> Result<(), Error> {
         match self {
-            CallType::Function(f) => f.compile(info, output, state),
-            CallType::Method(m) => m.compile(info, output, state),
+            CallType::Implicit(f) => f.compile(info, output, state),
+            CallType::Explicit(m) => m.compile(info, output, state),
         }
     }
 }
@@ -2133,15 +2136,15 @@ struct SubroutineCall {
 impl SubroutineCall {
     fn new() -> SubroutineCall {
         SubroutineCall {
-            call: CallType::Function(FunctionCall::new()),
+            call: CallType::Implicit(ImplicitMethodCall::new()),
         }
     }
     fn serialize(&self, output: &mut String, indent_level: usize) -> Result<(), SerializeError> {
         match &self.call {
-            CallType::Function(func) => {
+            CallType::Implicit(func) => {
                 func.serialize(output, indent_level)?;
             }
-            CallType::Method(method) => {
+            CallType::Explicit(method) => {
                 method.serialize(output, indent_level)?;
             }
         }
@@ -2540,7 +2543,7 @@ fn parse_subroutine_call(
     match next.value {
         '(' => {
             // function call
-            let mut f = FunctionCall::new();
+            let mut f = ImplicitMethodCall::new();
             f.name = source.to_owned();
             f.parameter_block.start = next.to_owned();
             current_idx = parse_expression_list(ctx, &mut f.parameters, tokens, current_idx + 1)?;
@@ -2556,11 +2559,11 @@ fn parse_subroutine_call(
             }
             f.parameter_block.end = end_token.to_owned();
             current_idx += 1;
-            target.call = CallType::Function(f);
+            target.call = CallType::Implicit(f);
         }
         '.' => {
             // class/method call
-            let mut m = MethodCall::new();
+            let mut m = ExplicitMethodCall::new();
             m.source_name = source.to_owned();
             m.dot = next.to_owned();
             current_idx += 1;
@@ -2590,7 +2593,7 @@ fn parse_subroutine_call(
             }
             m.parameter_block.end = end.to_owned();
             current_idx += 1;
-            target.call = CallType::Method(m);
+            target.call = CallType::Explicit(m);
         }
         _other => {
             return Err(Error::UnexpectedSymbol {
