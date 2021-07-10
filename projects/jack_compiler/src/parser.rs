@@ -298,7 +298,7 @@ fn init_os_functions(table: &mut ReturnTypeTable) {
         ("Memory.peek", ReturnType::Int),
         ("Memory.poke", ReturnType::Void),
         (MEMORY_ALLOC, arr.clone()),
-        ("Memory.dealloc", ReturnType::Void),
+        ("Memory.deAlloc", ReturnType::Void),
         ("Sys.halt", ReturnType::Void),
         ("Sys.error", ReturnType::Void),
         ("Sys.wait", ReturnType::Void),
@@ -599,22 +599,37 @@ impl SubroutineDec {
         // Create new function state
         let subroutine_type = keyword_to_subroutine_type(&self.prefix.value);
         state.func_state = FunctionScopeState::new(self.name.value.clone(), subroutine_type);
-        if matches!(subroutine_type, SubroutineType::Constructor) {
-            // We do some special memory assignment for constructors
-            let class_info = info.info_per_class.get(&state.class_name).unwrap();
-            let var_num = class_info.class_symbol_table.field_count;
-            // Allocate memory for class variables and set as 'this' pointer
-            output.push_str(&format!(
-                "{0} {1} {2}{nl}{3} {4} 1{nl}{5} {6} 0{nl}",
-                PUSH,
-                CONSTANT,
-                var_num,
-                CALL,
-                MEMORY_ALLOC,
-                POP,
-                POINTER,
-                nl = NEW_LINE
-            ));
+        // prepare memory segments depending on subroutine type
+        match subroutine_type {
+            SubroutineType::Constructor => {
+                // We do some special memory assignment for constructors
+                let class_info = info.info_per_class.get(&state.class_name).unwrap();
+                let var_num = class_info.class_symbol_table.field_count;
+                // Allocate memory for class variables and set as 'this' pointer
+                output.push_str(&format!(
+                    "{0} {1} {2}{nl}{3} {4} 1{nl}{5} {6} 0{nl}",
+                    PUSH,
+                    CONSTANT,
+                    var_num,
+                    CALL,
+                    MEMORY_ALLOC,
+                    POP,
+                    POINTER,
+                    nl = NEW_LINE
+                ));
+            }
+            SubroutineType::Method => {
+                // assign THIS from argument 0 to pointer 0
+                output.push_str(&format!(
+                    "{0} {1} 0{nl}{2} {3} 0{nl}",
+                    PUSH,
+                    ARGUMENT,
+                    POP,
+                    POINTER,
+                    nl = NEW_LINE
+                ));
+            }
+            SubroutineType::Function => {} // We do nothing for function
         }
         for s in &self.body.statements.list {
             s.compile(info, output, state)?;
@@ -1091,7 +1106,7 @@ impl Term {
             Term::UnaryOp(u) => u.compile(info, output, state),
             Term::Subroutine(sr) => sr.compile(info, output, state),
             Term::VarName(v) => v.compile(info, output, state),
-            Term::Keyword(k) => k.compile(info, output),
+            Term::Keyword(k) => k.compile(info, output, state),
             _other => {
                 println!("{}", output);
                 panic!("NotImplemented");
@@ -1208,11 +1223,14 @@ impl VarNameTerm {
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
+        // We look for which memory segment the variable is at
         let class_info = info.info_per_class.get(&state.class_name).unwrap();
         let method_table = class_info
             .symbol_table_per_method
             .get(&state.full_method_name());
         if method_table.is_some() {
+            println!("{}", output);
+            println!("{}", self.name.value);
             let entry = method_table.unwrap().table.get(&self.name.value).unwrap();
             match &entry.symbol_type {
                 SymbolType::Class(_c) => {
@@ -1244,7 +1262,12 @@ impl KeywordTerm {
         Ok(())
     }
 
-    fn compile(&self, info: &DirectoryParseInfo, output: &mut String) -> Result<(), Error> {
+    fn compile(
+        &self,
+        info: &DirectoryParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
         match self.keyword.value.as_str() {
             tokenizer::TRUE => {
                 // true is -1 so we not a 0
@@ -1264,8 +1287,14 @@ impl KeywordTerm {
             }
             tokenizer::NULL => panic!("Not implemented"),
             tokenizer::THIS => {
-                println!("{}", output);
-                panic!("Not implemented")
+                // THIS should be always assigned to pointer 0 for methods and constructors
+                // Functions shouldn't be using THIS in the first place
+                assert!(matches!(
+                    state.func_state.subroutine_type,
+                    SubroutineType::Constructor | SubroutineType::Method
+                ));
+                output.push_str(&format!("{} {} 0{}", PUSH, POINTER, NEW_LINE));
+                Ok(())
             }
             _other => panic!("Unexpected Keyword: {}", _other),
         }
@@ -2027,35 +2056,19 @@ impl ImplicitMethodCall {
         output: &mut String,
         state: &CompileState,
     ) -> Result<(), Error> {
+        // Implicit method calls should only be used from constructors and methods that can refer to THIS
+        assert!(matches!(
+            state.func_state.subroutine_type,
+            SubroutineType::Constructor | SubroutineType::Method
+        ));
         self.parameters.compile(info, output, state)?;
         let class_info = info.info_per_class.get(&state.class_name).unwrap();
-        // Push instance on the stack from appropriate segment and index
-        let (segment, index) = match state.func_state.subroutine_type {
-            // If we are in a constructor we should push the instance from a pointer segment
-            SubroutineType::Constructor => (POINTER, 0),
-            SubroutineType::Method => {
-                // If we are in a method we should push based on the info from the symbol table
-                let mst = class_info
-                    .symbol_table_per_method
-                    .get(&state.full_method_name())
-                    .unwrap();
-                // println!("{:?}", mst);
-                let this_entry = mst.table.get(tokenizer::THIS).unwrap();
-                (
-                    method_symbol_category_to_segment(&this_entry.category),
-                    this_entry.index,
-                )
-            }
-            // For functions we shouldn't have any implicit method calls
-            _ => panic!("Unexpected subroutine type encountered"),
-        };
         // full name of the target function we're calling
         let func_full_name = format!("{}.{}", state.class_name, self.name.value);
         let line = format!(
-            "{} {} {}{nl}{} {} {}{nl}",
+            "{} {} 0{nl}{} {} {}{nl}",
             PUSH,
-            segment,
-            index,
+            POINTER,
             CALL,
             func_full_name,
             self.parameters.list.len() + 1, // +1 for the instance we just pushed
