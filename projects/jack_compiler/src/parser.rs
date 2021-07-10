@@ -30,6 +30,7 @@ const IF_GOTO: &'static str = "if-goto";
 const GOTO: &'static str = "goto";
 const LOCAL: &'static str = "local";
 const ARGUMENT: &'static str = "argument";
+const TEMP: &'static str = "temp";
 const POINTER: &'static str = "pointer";
 const MEMORY_ALLOC: &'static str = "Memory.alloc";
 
@@ -2027,13 +2028,13 @@ impl ImplicitMethodCall {
         state: &CompileState,
     ) -> Result<(), Error> {
         self.parameters.compile(info, output, state)?;
+        let class_info = info.info_per_class.get(&state.class_name).unwrap();
         // Push instance on the stack from appropriate segment and index
         let (segment, index) = match state.func_state.subroutine_type {
             // If we are in a constructor we should push the instance from a pointer segment
             SubroutineType::Constructor => (POINTER, 0),
             SubroutineType::Method => {
                 // If we are in a method we should push based on the info from the symbol table
-                let class_info = info.info_per_class.get(&state.class_name).unwrap();
                 let mst = class_info
                     .symbol_table_per_method
                     .get(&state.full_method_name())
@@ -2048,18 +2049,28 @@ impl ImplicitMethodCall {
             // For functions we shouldn't have any implicit method calls
             _ => panic!("Unexpected subroutine type encountered"),
         };
+        // full name of the target function we're calling
+        let func_full_name = format!("{}.{}", state.class_name, self.name.value);
         let line = format!(
-            "{} {} {}{nl}{} {}.{} {}{nl}",
+            "{} {} {}{nl}{} {} {}{nl}",
             PUSH,
             segment,
             index,
             CALL,
-            state.class_name,
-            self.name.value,
-            self.parameters.list.len() + 1, // +1 for the instance
+            func_full_name,
+            self.parameters.list.len() + 1, // +1 for the instance we just pushed
             nl = NEW_LINE
         );
         output.push_str(&line);
+        // Search for the caller's return type from current class
+        let rt = class_info.return_type.table.get(&func_full_name).unwrap();
+        if matches!(rt, ReturnType::Void) {
+            // if the method call's return type is void
+            // we add an instruction to drop the implicit returned 0
+            output.push_str(&format!("{} {} 0{}", POP, TEMP, NEW_LINE));
+        }
+        // For all other return types we assume that a sufficient value has been
+        // placed on the global stack. We don't really care at this point.
         Ok(())
     }
 }
@@ -2148,7 +2159,7 @@ impl ExplicitMethodCall {
         if matches!(rt, ReturnType::Void) {
             // if the method call's return type is void
             // we add an instruction to drop the implicit returned 0
-            output.push_str(&format!("{} temp 0{}", POP, NEW_LINE));
+            output.push_str(&format!("{} {} 0{}", POP, TEMP, NEW_LINE));
         }
         // For all other return types we assume that a sufficient value has been
         // placed on the global stack. We don't really care at this point.
