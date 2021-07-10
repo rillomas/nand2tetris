@@ -1227,24 +1227,48 @@ impl VarNameTerm {
         let class_info = info.info_per_class.get(&state.class_name).unwrap();
         let method_table = class_info
             .symbol_table_per_method
-            .get(&state.full_method_name());
-        if method_table.is_some() {
-            println!("{}", output);
-            println!("{}", self.name.value);
-            let entry = method_table.unwrap().table.get(&self.name.value).unwrap();
-            match &entry.symbol_type {
-                SymbolType::Class(_c) => {
-                    panic!("NotImplemented");
-                }
-                _other => {
-                    let segment = method_symbol_category_to_segment(&entry.category);
-                    output.push_str(&format!("{} {} {}{}", PUSH, segment, entry.index, NEW_LINE));
-                    Ok(())
+            .get(&state.full_method_name())
+            .unwrap();
+        match method_table.table.get(&self.name.value) {
+            Some(entry) => {
+                // We found the variable in the method table
+                match &entry.symbol_type {
+                    SymbolType::Class(_c) => {
+                        panic!("NotImplemented");
+                    }
+                    _other => {
+                        let segment = method_symbol_category_to_segment(&entry.category);
+                        output
+                            .push_str(&format!("{} {} {}{}", PUSH, segment, entry.index, NEW_LINE));
+                        Ok(())
+                    }
                 }
             }
-        } else {
-            // look for class symbol table
-            panic!("NotImplemented");
+            None => {
+                // We look for the variable in class table
+                match class_info.class_symbol_table.table.get(&self.name.value) {
+                    Some(entry) => {
+                        // We found the variable in the class table
+                        match &entry.symbol_type {
+                            SymbolType::Class(_c) => {
+                                panic!("NotImplemented");
+                            }
+                            _other => {
+                                let segment = class_symbol_category_to_segment(&entry.category);
+                                output.push_str(&format!(
+                                    "{} {} {}{}",
+                                    PUSH, segment, entry.index, NEW_LINE
+                                ));
+                                Ok(())
+                            }
+                        }
+                    }
+                    None => panic!(
+                        "Var {} not found in method or class symbol table",
+                        self.name.value
+                    ),
+                }
+            }
         }
     }
 }
