@@ -24,7 +24,6 @@ fn main() -> std::io::Result<()> {
         let origin_name = jack_compiler::get_origin_name(&io.input_file).unwrap();
         let out_name = format!("{}.vm", origin_name);
         output_file_path.set_file_name(out_name);
-        println!("output: {}", &output_file_path.display());
         let mut info = jack_compiler::parser::ClassParseInfo::new();
         let class = jack_compiler::parser::parse_file(&mut info, &mut io.input).unwrap();
         dir_info

@@ -2176,12 +2176,19 @@ impl ExplicitMethodCall {
         {
             // source is class instance.
             // If the source is a class instance, we first need to push the instance and then the parameters
-            // let entry = class_info.class_symbol_table.table.get(name).unwrap();
-            // // The caller name will be the class name of the instance
-            // if let SymbolType::Class(class_name) = &entry.symbol_type {
-            //     caller_base = class_name;
-            // }
-            panic!("NotImplemented");
+            let entry = current_class_info
+                .class_symbol_table
+                .table
+                .get(name)
+                .unwrap();
+            let segment = class_symbol_category_to_segment(&entry.category);
+            let line = format!("{} {} {}{}", PUSH, segment, entry.index, NEW_LINE);
+            output.push_str(&line);
+            // The caller name will be the class name of the instance
+            if let SymbolType::Class(class_name) = &entry.symbol_type {
+                caller_base = class_name;
+            }
+            param_num += 1; // We add the instance as another parameter
         } else {
             // source is a class.
             // If the source is a class, we don't need to push the instance first.
