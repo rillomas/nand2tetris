@@ -5,8 +5,9 @@ use jack_compiler::{
 };
 use std::path::PathBuf;
 
-const TEST_DIR: &str = "tests";
-const DATA_DIR: &str = "data";
+const TEST_DIR: &'static str = "tests";
+const DATA_DIR: &'static str = "data";
+const GOLD_VM_DIR: &'static str = "Gold";
 
 fn test_tokenizer(root: &PathBuf, dir: &str) -> Result<(), std::io::Error> {
     let target = root.join(TEST_DIR).join(DATA_DIR).join(dir);
@@ -89,12 +90,17 @@ fn test_compiler(root: &PathBuf, dir: &str, print_xml: bool, print_vm: bool, com
         if compare_vm {
             // Compare with golden
             let origin = get_origin_name(&input_file).unwrap();
-            let mut golden_file_path = input_file.clone();
-            let golden_name = format!("{}Gold.vm", origin);
-            golden_file_path.set_file_name(&golden_name);
-            let golden_vm = std::fs::read_to_string(golden_file_path).unwrap();
+            let name = format!("{}.vm", origin);
+            let gold_path: PathBuf = root
+                .join(TEST_DIR)
+                .join(DATA_DIR)
+                .join(GOLD_VM_DIR)
+                .join(dir)
+                .join(name);
+            println!("{}", &gold_path.display());
+            let golden_vm = std::fs::read_to_string(&gold_path).unwrap();
             assert_eq!(golden_vm, vm);
-            println!("OK: {} vs {}", &golden_name, input_file.display());
+            println!("OK: {} vs {}", &gold_path.display(), input_file.display());
         }
     }
 }
@@ -150,5 +156,11 @@ fn test_compiler_convert_to_bin() {
 #[test]
 fn test_compiler_square() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    test_compiler(&root, "Square2", false, true, false);
+    test_compiler(&root, "Square2", false, false, false);
+}
+
+#[test]
+fn test_compiler_average() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    test_compiler(&root, "Average", false, true, false);
 }
