@@ -33,6 +33,8 @@ const ARGUMENT: &'static str = "argument";
 const TEMP: &'static str = "temp";
 const POINTER: &'static str = "pointer";
 const MEMORY_ALLOC: &'static str = "Memory.alloc";
+const STRING_NEW: &'static str = "String.new";
+const STRING_APPEND_CHAR: &'static str = "String.appendChar";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -265,12 +267,12 @@ fn init_os_functions(table: &mut ReturnTypeTable) {
         ("Math.min", ReturnType::Int),
         ("Math.max", ReturnType::Int),
         ("Math.sqrt", ReturnType::Int),
-        ("String.new", str.clone()),
+        (STRING_NEW, str.clone()),
         ("String.dispose", ReturnType::Int),
         ("String.length", ReturnType::Int),
         ("String.charAt", ReturnType::Char),
         ("String.setCharAt", ReturnType::Void),
-        ("String.appendChar", str.clone()),
+        (STRING_APPEND_CHAR, str.clone()),
         ("String.eraseLastChar", ReturnType::Void),
         ("String.intValue", ReturnType::Int),
         ("String.setInt", ReturnType::Void),
@@ -1200,6 +1202,30 @@ impl StringTerm {
     }
 
     fn compile(&self, _context: &DirectoryParseInfo, output: &mut String) -> Result<(), Error> {
+        let str = &self.string.value;
+        assert!(str.is_ascii()); // we only support ascii strings
+        let strlen = str.len(); // Allocate memory for the string length
+        output.push_str(&format!(
+            "{} {} {}{nl}{} {} 1{nl}",
+            PUSH,
+            CONSTANT,
+            strlen,
+            CALL,
+            STRING_NEW,
+            nl = NEW_LINE,
+        ));
+        // allocated string address should be on top of stack so we concat to that string
+        for c in str.chars() {
+            output.push_str(&format!(
+                "{} {} {}{nl}{} {} 2{nl}",
+                PUSH,
+                CONSTANT,
+                c as u32, // char to utf-8
+                CALL,
+                STRING_APPEND_CHAR,
+                nl = NEW_LINE
+            ));
+        }
         Ok(())
     }
 }
