@@ -32,7 +32,9 @@ const LOCAL: &'static str = "local";
 const ARGUMENT: &'static str = "argument";
 const TEMP: &'static str = "temp";
 const POINTER: &'static str = "pointer";
+const THAT: &'static str = "that";
 const MEMORY_ALLOC: &'static str = "Memory.alloc";
+const ADD: &'static str = "add";
 const STRING_NEW: &'static str = "String.new";
 const STRING_APPEND_CHAR: &'static str = "String.appendChar";
 
@@ -178,11 +180,6 @@ impl ClassSymbolTable {
             static_count: 0,
             field_count: 0,
         }
-    }
-
-    /// Check if given var_name is included as a variable or argument
-    fn contains(&self, var_name: &str) -> bool {
-        self.table.contains_key(var_name)
     }
 
     /// Add an entry to the symbol table and count up symbol index
@@ -1460,7 +1457,7 @@ impl Op {
 
     fn compile(&self, output: &mut String) -> Result<(), Error> {
         match self.symbol.value {
-            '+' => output.push_str(&format!("add{}", NEW_LINE)),
+            '+' => output.push_str(&format!("{}{}", ADD, NEW_LINE)),
             '-' => output.push_str(&format!("sub{}", NEW_LINE)),
             '=' => output.push_str(&format!("eq{}", NEW_LINE)),
             '>' => output.push_str(&format!("gt{}", NEW_LINE)),
@@ -1838,6 +1835,46 @@ impl LetStatement {
         Ok(())
     }
 
+    /// Used internally to assign value to array
+    fn assign_to_array(
+        &self,
+        info: &DirectoryParseInfo,
+        output: &mut String,
+        state: &CompileState,
+        arr_segment: &str,
+        arr_index: usize,
+    ) -> Result<(), Error> {
+        // Push base address for the array first
+        output.push_str(&format!(
+            "{} {} {}{}",
+            PUSH, arr_segment, arr_index, NEW_LINE
+        ));
+        // Push offset value of the array
+        self.array
+            .as_ref()
+            .unwrap()
+            .expression
+            .compile(info, output, state)?;
+        // Add offset to array
+        output.push_str(&format!("{}{}", ADD, NEW_LINE));
+        // Put right hand expression on stack
+        self.right_hand_side.compile(info, output, state)?;
+        // Put right hand value on temporal area
+        // Put left hand array on THAT pointer
+        // Put back right hand value to stack
+        // Assign to left hand array address
+        output.push_str(&format!(
+            "{pop} {temp} 0{nl}{pop} {} 1{nl}{} {temp} 0{nl}{pop} {} 0{nl}",
+            POINTER,
+            PUSH,
+            THAT,
+            pop = POP,
+            temp = TEMP,
+            nl = NEW_LINE
+        ));
+        Ok(())
+    }
+
     fn compile(
         &self,
         info: &DirectoryParseInfo,
@@ -1845,9 +1882,27 @@ impl LetStatement {
         state: &CompileState,
     ) -> Result<(), Error> {
         if self.array.is_some() {
-            println!("{}", output);
-            // compile as array expression
-            panic!("NotImplemented");
+            // Get the entry for current array
+            let class_info = info.info_per_class.get(&state.class_name).unwrap();
+            let method_table = class_info
+                .symbol_table_per_method
+                .get(&state.full_method_name())
+                .unwrap();
+            let maybe_entry = method_table.table.get(&self.var_name.value);
+            if maybe_entry.is_some() {
+                let entry = maybe_entry.unwrap();
+                let segment = method_symbol_category_to_segment(&entry.category);
+                return self.assign_to_array(info, output, state, segment, entry.index);
+            } else {
+                // Should be on class table
+                let entry = class_info
+                    .class_symbol_table
+                    .table
+                    .get(&self.var_name.value)
+                    .unwrap();
+                let segment = class_symbol_category_to_segment(&entry.category);
+                return self.assign_to_array(info, output, state, segment, entry.index);
+            }
         } else {
             // compile as normal var
             self.right_hand_side.compile(info, output, state)?;
