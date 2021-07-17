@@ -162,5 +162,5 @@ fn test_compiler_square() {
 #[test]
 fn test_compiler_average() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    test_compiler(&root, "Average", false, true, false);
+    test_compiler(&root, "Average", false, false, false);
 }

@@ -1106,10 +1106,7 @@ impl Term {
             Term::Subroutine(sr) => sr.compile(info, output, state),
             Term::VarName(v) => v.compile(info, output, state),
             Term::Keyword(k) => k.compile(info, output, state),
-            _other => {
-                println!("{}", output);
-                panic!("NotImplemented");
-            } // Term::ArrayVar(av) => av.serialize(output, indent_level),
+            Term::ArrayVar(av) => av.compile(info, output, state),
         }
     }
 }
@@ -1382,6 +1379,61 @@ impl ArrayVarTerm {
         self.arr.serialize(output, next_level)?;
         output.push_str(&end_tag);
         Ok(())
+    }
+
+    /// compile code to dereference array value
+    fn deref_array(
+        &self,
+        info: &DirectoryParseInfo,
+        output: &mut String,
+        state: &CompileState,
+        var_segment: &str,
+        var_entry_index: usize,
+    ) -> Result<(), Error> {
+        output.push_str(&format!(
+            "{} {} {}{}",
+            PUSH, var_segment, var_entry_index, NEW_LINE
+        ));
+        // Push offset value on stack
+        self.arr.expression.compile(info, output, state)?;
+        // pop calculated offset to THAT and dereference that
+        output.push_str(&format!(
+            "{}{nl}{} {} 1{nl}{} {} 0{nl}",
+            ADD,
+            POP,
+            POINTER,
+            PUSH,
+            THAT,
+            nl = NEW_LINE
+        ));
+        Ok(())
+    }
+
+    fn compile(
+        &self,
+        info: &DirectoryParseInfo,
+        output: &mut String,
+        state: &CompileState,
+    ) -> Result<(), Error> {
+        // get entry for target array var and calculate offset
+        let class_info = info.info_per_class.get(&state.class_name).unwrap();
+        let method_table = class_info
+            .symbol_table_per_method
+            .get(&state.full_method_name())
+            .unwrap();
+        let var_name = &self.name.value;
+        let maybe_entry = method_table.table.get(var_name);
+        if maybe_entry.is_some() {
+            // Found entry in local so we push it on stack
+            let entry = maybe_entry.unwrap();
+            let segment = method_symbol_category_to_segment(&entry.category);
+            return self.deref_array(info, output, state, segment, entry.index);
+        } else {
+            // Should be on class table
+            let entry = class_info.class_symbol_table.table.get(var_name).unwrap();
+            let segment = class_symbol_category_to_segment(&entry.category);
+            return self.deref_array(info, output, state, segment, entry.index);
+        }
     }
 }
 
