@@ -164,3 +164,9 @@ fn test_compiler_average() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     test_compiler(&root, "Average", false, false, true);
 }
+
+#[test]
+fn test_compiler_pong() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    test_compiler(&root, "Pong", false, false, false);
+}

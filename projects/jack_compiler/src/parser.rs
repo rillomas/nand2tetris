@@ -259,6 +259,7 @@ fn init_os_functions(table: &mut ReturnTypeTable) {
     let str = ReturnType::Class(String::from("String"));
     let arr = ReturnType::Class(String::from("Array"));
     let funcs = [
+        ("Math.abs", ReturnType::Int),
         ("Math.multiply", ReturnType::Int),
         ("Math.divide", ReturnType::Int),
         ("Math.min", ReturnType::Int),
