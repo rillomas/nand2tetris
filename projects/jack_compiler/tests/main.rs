@@ -150,17 +150,17 @@ fn test_compiler_seven() {
 #[test]
 fn test_compiler_convert_to_bin() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    test_compiler(&root, "ConvertToBin", false, false, false);
+    test_compiler(&root, "ConvertToBin", false, false, true);
 }
 
 #[test]
 fn test_compiler_square() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    test_compiler(&root, "Square2", false, false, false);
+    test_compiler(&root, "Square2", false, false, true);
 }
 
 #[test]
 fn test_compiler_average() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    test_compiler(&root, "Average", false, false, false);
+    test_compiler(&root, "Average", false, false, true);
 }
