@@ -1253,36 +1253,19 @@ impl VarNameTerm {
         match method_table.table.get(&self.name.value) {
             Some(entry) => {
                 // We found the variable in the method table
-                match &entry.symbol_type {
-                    SymbolType::Class(_c) => {
-                        panic!("NotImplemented");
-                    }
-                    _other => {
-                        let segment = method_symbol_category_to_segment(&entry.category);
-                        output
-                            .push_str(&format!("{} {} {}{}", PUSH, segment, entry.index, NEW_LINE));
-                        Ok(())
-                    }
-                }
+                let segment = method_symbol_category_to_segment(&entry.category);
+                output.push_str(&format!("{} {} {}{}", PUSH, segment, entry.index, NEW_LINE));
+                Ok(())
             }
             None => {
                 // We look for the variable in class table
                 match class_info.class_symbol_table.table.get(&self.name.value) {
                     Some(entry) => {
                         // We found the variable in the class table
-                        match &entry.symbol_type {
-                            SymbolType::Class(_c) => {
-                                panic!("NotImplemented");
-                            }
-                            _other => {
-                                let segment = class_symbol_category_to_segment(&entry.category);
-                                output.push_str(&format!(
-                                    "{} {} {}{}",
-                                    PUSH, segment, entry.index, NEW_LINE
-                                ));
-                                Ok(())
-                            }
-                        }
+                        let segment = class_symbol_category_to_segment(&entry.category);
+                        output
+                            .push_str(&format!("{} {} {}{}", PUSH, segment, entry.index, NEW_LINE));
+                        Ok(())
                     }
                     None => panic!(
                         "Var {} not found in method or class symbol table",
@@ -2219,18 +2202,18 @@ impl ImplicitMethodCall {
             state.func_state.subroutine_type,
             SubroutineType::Constructor | SubroutineType::Method
         ));
+        // Push THIS first, and then push other parameters
+        output.push_str(&format!("{} {} 0{}", PUSH, POINTER, NEW_LINE));
         self.parameters.compile(info, output, state)?;
         let class_info = info.info_per_class.get(&state.class_name).unwrap();
         // full name of the target function we're calling
         let func_full_name = format!("{}.{}", state.class_name, self.name.value);
         let line = format!(
-            "{} {} 0{nl}{} {} {}{nl}",
-            PUSH,
-            POINTER,
+            "{} {} {}{}",
             CALL,
             func_full_name,
             self.parameters.list.len() + 1, // +1 for the instance we just pushed
-            nl = NEW_LINE
+            NEW_LINE
         );
         output.push_str(&line);
         // Search for the caller's return type from current class
