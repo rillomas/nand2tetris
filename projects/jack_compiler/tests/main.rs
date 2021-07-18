@@ -170,3 +170,9 @@ fn test_compiler_pong() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     test_compiler(&root, "Pong", false, false, true);
 }
+
+#[test]
+fn test_compiler_complex_arrays() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    test_compiler(&root, "ComplexArrays", false, false, true);
+}

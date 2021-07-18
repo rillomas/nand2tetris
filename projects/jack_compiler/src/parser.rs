@@ -1308,12 +1308,11 @@ impl KeywordTerm {
                 ));
                 Ok(())
             }
-            tokenizer::FALSE => {
-                // false is 0
+            tokenizer::FALSE | tokenizer::NULL => {
+                // false and null is 0
                 output.push_str(&format!("{} {} 0{}", PUSH, CONSTANT, NEW_LINE));
                 Ok(())
             }
-            tokenizer::NULL => panic!("Not implemented"),
             tokenizer::THIS => {
                 // THIS should be always assigned to pointer 0 for methods and constructors
                 // Functions shouldn't be using THIS in the first place
